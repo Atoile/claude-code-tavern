@@ -28,6 +28,8 @@ Read the following files:
 
 - `infrastructure/dialogues/{dialogue_id}/scenario.json` — scene premise and each character's scenario framing
 - `infrastructure/dialogues/{dialogue_id}/recent_chat.json` — recent dialogue context (last ~10 turns)
+
+**First reply rule:** If `recent_chat.json` contains exactly one entry (the opening line), treat that entry and the scenario as the only valid scene context. Do not draw on, infer from, or let bleed through any of the unselected openings in `scenario.json`. The selected opening is ground-zero — the scene has no history beyond it.
 - `infrastructure/dialogues/{dialogue_id}/memory.json` — general scene memory, if it exists
 - Character `data.json` for each character in the scene — **read only the fields listed below**
 
@@ -48,6 +50,11 @@ Do not read or load any other sections (`meta`, `lorebook`, `abilities`, `voice_
 ---
 
 ## 3. Generate the reply
+
+**Turn order when `both_chars: true`:**
+
+- **Default:** the character who did *not* speak last in `recent_chat.json` goes first. Check the `speaker` of the final entry and give the other character the opening turn this round.
+- **Override:** if `user_prompt` explicitly directs a specific character's action (e.g. "as Gary Stu does X…"), that character goes first regardless of default order.
 
 Write a reply for `replying_char_id` that:
 

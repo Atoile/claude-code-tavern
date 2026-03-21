@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/tavern_mode_check.py 2>/dev/null || true",
+            "statusMessage": "Checking TAVERN_MODE write permissions..."
+          }
+        ]
+      }
+    ]
+  }
+}
