@@ -23,7 +23,7 @@ Web App (Svelte + Vite)          Claude Code (you trigger this)
         │                                │
         ├─ writes queue.json ───────────►├─ reads queue.json (FIFO)
         ├─ pauses UI                     ├─ routes tasks by type
-        ├─ polls queue.json              ├─ calls Claude API (Sonnet/Haiku)
+        ├─ polls queue.json              ├─ spawns subagents (Sonnet/Haiku)
         │                                ├─ writes results to disk
         └─ resumes when queue empty ◄────└─ clears completed tasks
 ```
@@ -39,7 +39,6 @@ Web App (Svelte + Vite)          Claude Code (you trigger this)
 
 - [Node.js](https://nodejs.org/) (v18+)
 - [Claude Code](https://claude.ai/claude-code) installed and authenticated
-- An Anthropic API key accessible to Claude Code
 
 ---
 
