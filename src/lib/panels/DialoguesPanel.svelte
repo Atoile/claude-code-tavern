@@ -23,7 +23,7 @@
     <h1 class="text-xl font-bold">Dialogues</h1>
     <div class="flex gap-2">
       <button class="btn btn-xs btn-ghost" onclick={load}>
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" style="fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round">
           <polyline points="23 4 23 10 17 10"/>
           <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
         </svg>
@@ -49,9 +49,12 @@
       {#each dialogues as d (d.id)}
         {@const leading = d.characters?.leading || d.characters?.charA}
         {@const replying = d.characters?.replying || d.characters?.charB}
-        <button
-          class="card bg-base-200 hover:bg-base-100 text-left transition-colors border-2 border-transparent hover:border-base-100 w-full"
+        <div
+          class="card bg-base-200 hover:bg-base-100 text-left transition-colors border-2 border-transparent hover:border-base-100 w-full cursor-pointer"
+          role="button"
+          tabindex="0"
           onclick={() => onOpenDialogue(d.id, d.characters)}
+          onkeydown={(e) => e.key === 'Enter' && onOpenDialogue(d.id, d.characters)}
         >
           <div class="card-body p-4 gap-2">
             <div class="flex items-center gap-2">
@@ -65,7 +68,7 @@
             {/if}
             <div class="text-xs text-base-content/30">{new Date(d.last_updated).toLocaleString()}</div>
           </div>
-        </button>
+        </div>
       {/each}
     </div>
   {/if}
