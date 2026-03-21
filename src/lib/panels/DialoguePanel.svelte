@@ -3,7 +3,7 @@
   import { readQueue, appendToQueue } from '../stores/queue.js'
   import ChatBubble from '../components/ChatBubble.svelte'
 
-  let { dialogueId, charA, charB, leadingChar, onBack, initialTaskIds = [] } = $props()
+  let { dialogueId, charA, charB, onBack, initialTaskIds = [] } = $props()
 
   // charA = leading char, charB = replying char (passed from SceneSetupPanel after init)
   // leadingChar = same as charA here
@@ -240,7 +240,7 @@
       </div>
     {/if}
 
-    {#each messages as msg}
+    {#each messages as msg, i (i)}
       <ChatBubble
         message={msg}
         isLeading={isLeadingMessage(msg)}

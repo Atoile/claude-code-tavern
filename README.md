@@ -142,6 +142,45 @@ The same pattern applies to any file under `domain/` or `application/`.
 
 ---
 
+## Tech Stack
+
+### Frontend
+| | |
+|---|---|
+| [Svelte 5](https://svelte.dev/) | UI framework — uses runes (`$state`, `$derived`, `$props`) |
+| [Vite 8](https://vite.dev/) | Dev server and bundler; also serves the local file API via middleware |
+| [Tailwind CSS v4](https://tailwindcss.com/) | Utility-first styling |
+| [DaisyUI v5](https://daisyui.com/) | Component library on top of Tailwind |
+| [marked](https://marked.js.org/) | Markdown rendering for dialogue output |
+
+### AI / Orchestration
+| | |
+|---|---|
+| [Claude Code](https://claude.ai/claude-code) | Primary runtime — processes the queue, calls agents, writes results |
+| [claude-sonnet-4-6](https://anthropic.com/) | Character repacking, scenario generation, dialogue generation |
+| [claude-haiku-4-5](https://anthropic.com/) | Queue orchestration, lightweight classification tasks |
+
+### Local GPU (optional — scripts provided, not yet wired to queue)
+| | |
+|---|---|
+| [XTTS v2](https://github.com/coqui-ai/TTS) | Local text-to-speech |
+| [Whisper](https://github.com/openai/whisper) | TTS output validation via transcription |
+| [SDXL](https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0) | Character portrait generation |
+
+### Storage
+| | |
+|---|---|
+| Local filesystem | All character data, dialogue history, and queue state as JSON |
+| localStorage | Active scene persistence across page reloads |
+
+### Dev Tools
+| | |
+|---|---|
+| [ESLint](https://eslint.org/) | Linting — `eslint-plugin-svelte` for Svelte 5 rune support |
+| Python 3 | CLI scripts for card extraction and local GPU tasks |
+
+---
+
 ## Model Assignment
 
 | Task | Model |

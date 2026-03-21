@@ -1,12 +1,13 @@
 <script>
   import { onMount } from 'svelte'
+  import { SvelteSet } from 'svelte/reactivity'
   import { repackedCharacters, rawCharacters, selectedCharacters, loadCharacters, toggleCharacterSelection, clearSelection } from '../stores/characters.js'
   import CharacterCard from '../components/CharacterCard.svelte'
 
   let { onStartScene } = $props()
 
   let searchQuery = $state('')
-  let selectedTags = $state(new Set())
+  let selectedTags = new SvelteSet()
 
   onMount(() => loadCharacters())
 
@@ -25,9 +26,7 @@
   }
 
   function toggleTag(tag) {
-    const next = new Set(selectedTags)
-    next.has(tag) ? next.delete(tag) : next.add(tag)
-    selectedTags = next
+    selectedTags.has(tag) ? selectedTags.delete(tag) : selectedTags.add(tag)
   }
 
   const allTags = $derived(
@@ -80,7 +79,7 @@
 
   {#if allTags.length > 0}
     <div class="flex flex-wrap gap-1 mb-4">
-      {#each allTags as tag}
+      {#each allTags as tag (tag)}
         <button
           class="badge badge-sm cursor-pointer select-none transition-colors"
           class:badge-success={selectedTags.has(tag)}
@@ -89,7 +88,7 @@
         >{tag}</button>
       {/each}
       {#if selectedTags.size > 0}
-        <button class="badge badge-sm badge-ghost opacity-50 hover:opacity-80 cursor-pointer" onclick={() => selectedTags = new Set()}>clear</button>
+        <button class="badge badge-sm badge-ghost opacity-50 hover:opacity-80 cursor-pointer" onclick={() => selectedTags.clear()}>clear</button>
       {/if}
     </div>
   {/if}
@@ -124,7 +123,7 @@
     <div class="mb-4">
       <div class="text-xs font-semibold text-success uppercase tracking-wider mb-2">Repacked</div>
       <div class="flex flex-col gap-2">
-        {#each filteredRepacked as char}
+        {#each filteredRepacked as char (char.id)}
           <CharacterCard character={char} isRaw={false} selected={isSelected(char, false)} onSelect={() => handleSelect(char, false)} />
         {/each}
       </div>
@@ -136,7 +135,7 @@
     <div class="mb-4">
       <div class="text-xs font-semibold text-warning uppercase tracking-wider mb-2">Raw (unrepacked)</div>
       <div class="flex flex-col gap-2">
-        {#each filteredRaw as char}
+        {#each filteredRaw as char (char.filename)}
           <CharacterCard character={char} isRaw={true} selected={isSelected(char, true)} onSelect={() => handleSelect(char, true)} />
         {/each}
       </div>

@@ -46,7 +46,7 @@
     </div>
   {:else}
     <div class="flex flex-col gap-3">
-      {#each dialogues as d}
+      {#each dialogues as d (d.id)}
         {@const leading = d.characters?.leading || d.characters?.charA}
         {@const replying = d.characters?.replying || d.characters?.charB}
         <button

@@ -65,7 +65,7 @@
       <div class="text-base-content/40 text-sm">Queue is empty.</div>
     {:else}
       <div class="flex flex-col gap-2 overflow-y-auto">
-        {#each $queueItems as item}
+        {#each $queueItems as item (item.id)}
           <div class="card bg-base-200 p-3 text-xs font-mono">
             <div class="flex items-center gap-2 mb-1">
               <span class="badge {statusColor[item.status] || 'badge-ghost'} badge-sm">{item.status}</span>
@@ -83,7 +83,7 @@
 {:else}
   <!-- Compact inline status for use inside other panels -->
   <div class="flex flex-col gap-1">
-    {#each $queueItems as item}
+    {#each $queueItems as item (item.id)}
       <div class="flex items-center gap-2 text-xs">
         <span class="badge {statusColor[item.status] || 'badge-ghost'} badge-xs">{item.status}</span>
         <span class="text-base-content/60">{item.type}</span>

@@ -13,7 +13,6 @@
   let selectedOpening = $state(null)
   let pollInterval = $state(null)
   let setupTaskIds = $state([])
-  let initTaskIds = $state([])
 
   const charAName = $derived(charA?._isRaw
     ? charA.filename?.replace(/\.png$/i, '').replace(/_/g, ' ')
@@ -233,7 +232,7 @@
       status: 'pending'
     }]
 
-    initTaskIds = [generateReplyId]
+
     await appendToQueue(tasks)
 
     startPolling([generateReplyId], async () => {
@@ -274,7 +273,7 @@
     {#each [
       { name: charAName, avatarSrc: charAAvatarSrc, isRaw: charAIsRaw, summary: charASummary },
       { name: charBName, avatarSrc: charBAvatarSrc, isRaw: charBIsRaw, summary: charBSummary }
-    ] as char}
+    ] as char, i (i)}
       <div class="card bg-base-200 overflow-hidden">
         <!-- Avatar fills card top, 4:3 -->
         <div class="overflow-hidden bg-base-300 mx-auto" style="aspect-ratio: 3/4; width: min(100%, calc(400px * 3 / 4));">
@@ -348,7 +347,7 @@
       <div class="flex flex-col gap-2">
         <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">Leading character</div>
         <div class="grid grid-cols-2 gap-2">
-          {#each [{ key: 'A', name: charAName }, { key: 'B', name: charBName }] as opt}
+          {#each [{ key: 'A', name: charAName }, { key: 'B', name: charBName }] as opt (opt.key)}
             <button
               class="btn btn-sm {selectedLeading === opt.key ? 'btn-primary' : 'btn-ghost border border-base-100'}"
               onclick={() => { selectedLeading = opt.key; selectedOpening = 0 }}
@@ -362,7 +361,7 @@
       <!-- Opening options -->
       <div class="flex flex-col gap-2">
         <div class="text-xs font-semibold text-base-content/50 uppercase tracking-wide">Opening line</div>
-        {#each openings as opening, i}
+        {#each openings as opening, i (i)}
           <button
             class="text-left rounded-xl p-3 text-sm leading-relaxed transition-colors border-2 {selectedOpening === i ? 'border-primary bg-primary/10' : 'border-transparent bg-base-200 hover:bg-base-100'}"
             onclick={() => selectedOpening = i}

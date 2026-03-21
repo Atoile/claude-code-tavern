@@ -30,6 +30,7 @@
   </div>
   <div class="chat-header text-xs text-base-content/50 mb-1">{characterName}</div>
   <div class="chat-bubble {isLeading ? 'chat-bubble-primary' : ''} prose prose-sm max-w-[70%] bubble-content" style="max-width: 70%; font-size: 18px; {isLeading ? '' : 'background-color: #9d174d; color: #fce7f3;'}">
+    <!-- eslint-disable-next-line svelte/no-at-html-tags -->
     {@html html}
   </div>
 </div>
