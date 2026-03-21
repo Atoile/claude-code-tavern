@@ -268,6 +268,7 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 | `repack_character` | `application/character/repack.md` |
 | `optimize_scenario` | `application/dialogue/optimize_scenario.md` |
 | `generate_reply` | `application/dialogue/generate_reply.md` |
+| `condense_memory` | `application/dialogue/condense_memory.md` — triggered inline, not queued (see step 6) |
 
 4. If the task type is not in the table: output `ERROR: no agent defined for task type "<type>". Queue stopped.` and stop.
 5. **Spawn a general-purpose subagent** with this prompt:
@@ -279,7 +280,11 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 
    Working directory is the repository root.
    ```
-6. **After the task agent finishes**, re-read `infrastructure/queue/queue.json`. If no eligible pending tasks remain, remove all `status: done` items and write the file back.
+6. **After the task agent finishes:**
+   - For `generate_reply` tasks:
+     1. Run `python application/scripts/append_turns.py --dialogue-id {input.dialogue_id} --turns-file {output_path}`. This appends the agent's output to `full_chat.json` and `recent_chat.json` programmatically.
+     2. If the script outputs `CONDENSE_NEEDED {dialogue_id}`, immediately spawn a `condense_memory` subagent using `application/dialogue/condense_memory.md` with the dialogue_id. Do not queue it — run it inline before moving on.
+   - Re-read `infrastructure/queue/queue.json`. If no eligible pending tasks remain, remove all `status: done` items and write the file back.
 
 ## Key Principles
 

@@ -30,10 +30,11 @@ Read the following files:
 - `infrastructure/dialogues/{dialogue_id}/recent_chat.json` — recent dialogue context (last ~10 turns)
 
 **First reply rule:** If `recent_chat.json` contains exactly one entry (the opening line), treat that entry and the scenario as the only valid scene context. Do not draw on, infer from, or let bleed through any of the unselected openings in `scenario.json`. The selected opening is ground-zero — the scene has no history beyond it.
-- `infrastructure/dialogues/{dialogue_id}/memory.json` — general scene memory, if it exists
+- `infrastructure/dialogues/{dialogue_id}/short_memory.json` — immediate scene snapshot (current states, last beat), if it exists — treat as highest-priority context after `recent_chat.json`
+- `infrastructure/dialogues/{dialogue_id}/memory.json` — cumulative scene memory (events, arcs, relationship), if it exists
 - Character `data.json` for each character in the scene — **read only the fields listed below**
 
-Do not read `full_chat.json` — recent_chat.json is the context window.
+**Do not read `full_chat.json` for context.** It is only touched in step 5 to append new turns. `recent_chat.json` is the sole context window.
 
 **Fields to extract from each character's `data.json`:**
 
@@ -75,7 +76,7 @@ Follow `domain/dialogue/writing_rules.md` for all speech wrapping, action descri
 
 ---
 
-## 5. Update dialogue files
+## 5. Write output
 
 Each turn is a JSON object:
 
@@ -83,11 +84,9 @@ Each turn is a JSON object:
 { "speaker": "<char_id>", "text": "<reply with \\n\\n paragraph breaks>" }
 ```
 
-**`infrastructure/dialogues/{dialogue_id}/full_chat.json`** — append the new turn(s) to the array. This is the permanent record, it grows unboundedly.
+Write a JSON array of the new turn object(s) to `output_path` from the queue item.
 
-**`infrastructure/dialogues/{dialogue_id}/recent_chat.json`** — append the new turn(s), then **trim to the last 10 entries** before writing. This is the context window; keeping it fixed-size prevents cost growth over long dialogues.
-
-No other fields. Write valid JSON arrays.
+Do not write to `full_chat.json` or `recent_chat.json` — the orchestrator appends them after you finish via `application/scripts/append_turns.py`.
 
 ---
 
@@ -104,6 +103,5 @@ After writing the dialogue files, remove the processed item from `infrastructure
 - [ ] Interior thoughts always on their own line — never inline with action beats or dialogue
 - [ ] Distinct paragraphs separated with `\n\n` — not a single run-on block
 - [ ] `user_prompt` direction honored if provided
-- [ ] `full_chat.json` appended (unbounded)
-- [ ] `recent_chat.json` appended then trimmed to last 10 entries
+- [ ] New turns written as a JSON array to `output_path`
 - [ ] Queue item removed

@@ -175,6 +175,22 @@ function tavernApiPlugin() {
           return
         }
 
+        // DELETE /api/dialogue/:id/:file
+        const dialogueDeleteMatch = pathname.match(/^\/dialogue\/([^/]+)\/([^/]+)$/)
+        if (req.method === 'DELETE' && dialogueDeleteMatch) {
+          try {
+            const [, id, file] = dialogueDeleteMatch
+            const filePath = path.join(ROOT, 'infrastructure', 'dialogues', id, `${file}.json`)
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ ok: true }))
+          } catch (err) {
+            res.writeHead(500)
+            res.end(JSON.stringify({ error: err.message }))
+          }
+          return
+        }
+
         // POST /api/dialogue/:id/:file
         const dialoguePostMatch = pathname.match(/^\/dialogue\/([^/]+)\/([^/]+)$/)
         if (req.method === 'POST' && dialoguePostMatch) {

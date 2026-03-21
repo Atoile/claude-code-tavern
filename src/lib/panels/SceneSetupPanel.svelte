@@ -228,7 +228,7 @@
       id: generateReplyId, type: 'generate_reply', parallel: false, depends_on: [],
       model: 'claude-sonnet-4-6',
       input: { dialogue_id: dialogueId, replying_char_id: replyingCharId },
-      output_path: `infrastructure/dialogues/${dialogueId}/recent_chat.json`,
+      output_path: `infrastructure/dialogues/${dialogueId}/pending_turns.json`,
       status: 'pending'
     }]
 

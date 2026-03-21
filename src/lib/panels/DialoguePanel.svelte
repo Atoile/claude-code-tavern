@@ -9,6 +9,7 @@
   // leadingChar = same as charA here
 
   let messages = $state([])
+  let hasCheckpoint = $state(false)
   let isPolling = $state(false)
   let pollInterval = null
   let directionText = $state('')
@@ -47,12 +48,19 @@
 
   async function loadMessages() {
     try {
-      const res = await fetch(`/api/dialogue/${dialogueId}/recent_chat`)
-      if (res.ok) {
-        const data = await res.json()
+      const [chatRes, cpRes] = await Promise.all([
+        fetch(`/api/dialogue/${dialogueId}/recent_chat`),
+        fetch(`/api/file-exists?path=infrastructure/dialogues/${dialogueId}/memory_checkpoint.json`)
+      ])
+      if (chatRes.ok) {
+        const data = await chatRes.json()
         messages = Array.isArray(data) ? data : (data.messages || [])
         await tick()
         scrollToBottom()
+      }
+      if (cpRes.ok) {
+        const cpData = await cpRes.json()
+        hasCheckpoint = cpData.exists
       }
     } catch (err) {
       error = `Failed to load messages: ${err.message}`
@@ -103,7 +111,7 @@
         replying_char_id: replyingId,
         both_chars: true
       },
-      output_path: `infrastructure/dialogues/${dialogueId}/recent_chat.json`,
+      output_path: `infrastructure/dialogues/${dialogueId}/pending_turns.json`,
       status: 'pending'
     }]
     await appendToQueue(tasks)
@@ -127,7 +135,7 @@
         both_chars: true,
         user_prompt: directionText.trim()
       },
-      output_path: `infrastructure/dialogues/${dialogueId}/recent_chat.json`,
+      output_path: `infrastructure/dialogues/${dialogueId}/pending_turns.json`,
       status: 'pending'
     }]
     await appendToQueue(tasks)
@@ -137,31 +145,45 @@
   }
 
   async function handleRollback() {
-    // Remove last round without queueing anything
     try {
-      const res = await fetch(`/api/dialogue/${dialogueId}/full_chat`)
-      if (!res.ok) return
-      const fullChat = await res.json()
+      const [fullChatRes, checkpointRes] = await Promise.all([
+        fetch(`/api/dialogue/${dialogueId}/full_chat`),
+        fetch(`/api/dialogue/${dialogueId}/memory_checkpoint`)
+      ])
+      if (!fullChatRes.ok) return
+      const fullChat = await fullChatRes.json()
       const msgs = Array.isArray(fullChat) ? fullChat : (fullChat.messages || [])
       if (msgs.length < 2) return
 
-      // Remove last 2 entries (one round = both chars)
+      const checkpoint = checkpointRes.ok ? await checkpointRes.json() : null
       const trimmed = msgs.slice(0, -2)
 
-      await fetch(`/api/dialogue/${dialogueId}/full_chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(trimmed)
-      })
+      await Promise.all([
+        fetch(`/api/dialogue/${dialogueId}/full_chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(trimmed)
+        }),
+        fetch(`/api/dialogue/${dialogueId}/recent_chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(trimmed.slice(-10))
+        })
+      ])
 
-      // Update recent_chat too
-      const recentCount = Math.min(trimmed.length, 10)
-      const recent = trimmed.slice(-recentCount)
-      await fetch(`/api/dialogue/${dialogueId}/recent_chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(recent)
-      })
+      // If rollback crossed the last condensing boundary, restore memory from checkpoint
+      if (checkpoint && trimmed.length < checkpoint.condensed_at) {
+        await Promise.all([
+          fetch(`/api/dialogue/${dialogueId}/memory`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(checkpoint.memory)
+          }),
+          fetch(`/api/dialogue/${dialogueId}/memory_checkpoint`, { method: 'DELETE' }),
+          fetch(`/api/dialogue/${dialogueId}/short_memory`, { method: 'DELETE' })
+        ])
+        hasCheckpoint = false
+      }
 
       await loadMessages()
     } catch (err) {
@@ -297,13 +319,15 @@
         + Direction
       </button>
 
-      <button
-        class="btn btn-ghost btn-sm text-error"
-        onclick={handleRollback}
-        disabled={isPolling || messages.length < 2}
-      >
-        Rollback
-      </button>
+      {#if hasCheckpoint}
+        <button
+          class="btn btn-ghost btn-sm text-error"
+          onclick={handleRollback}
+          disabled={isPolling}
+        >
+          Rollback
+        </button>
+      {/if}
 
       <button
         class="btn btn-ghost btn-sm ml-auto"
