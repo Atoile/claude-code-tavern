@@ -1,12 +1,43 @@
 ---
 name: Dialogue Writing Rules
-description: Canonical formatting rules for all dialogue output — speech wrapping, action perspective, inline rules, paragraph breaks
+description: Canonical formatting and craft rules for all dialogue output — tone, character voice, speech wrapping, action perspective, inline rules, paragraph breaks
 type: domain
 ---
 
-# Writing Rules — Dialogue Formatting
+# Writing Rules — Dialogue
 
 All dialogue output, whether generated replies or adapted opening lines, must follow these rules.
+
+---
+
+## Tone
+
+Mature and light-hearted. Real stakes, no grimdark. The world has weight and consequence but it does not wallow.
+
+- Characters are allowed to be funny without the scene becoming a joke
+- Tragedy and levity can coexist in the same exchange
+- Avoid melodrama — understatement lands harder
+- Avoid sanctimony — characters have opinions but do not lecture
+
+---
+
+## Character Voice
+
+Characters have interiority. They assess, they want things, they have a register that is not the narrator's register. Write from inside that.
+
+- Match vocabulary and rhythm to the character — a street urchin speaks differently than a veteran knight
+- Silence and subtext carry as much weight as dialogue
+- Dry humor should arrive without announcement and leave the same way
+- Avoid explaining what the character is feeling when the behavior already shows it
+
+---
+
+## Craft
+
+- Action beats should be brief and purposeful — they interrupt dialogue rhythm, so they must earn it
+- Avoid adverbs where the verb can do the work
+- The pause before a line is often more important than the line itself
+- Physical detail is most effective when specific and unexpected, not comprehensive
 
 ---
 

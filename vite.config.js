@@ -140,15 +140,20 @@ function tavernApiPlugin() {
                 const chars = readJson(charsPath)
                 const scenario = readJson(scenarioPath)
                 const chat = readJson(chatPath)
+                const fullChatPath = path.join(dialoguesDir, entry, 'full_chat.json')
+                const statPath = fs.existsSync(fullChatPath) ? fullChatPath : charsPath
+                const mtime = fs.statSync(statPath).mtimeMs
                 result.push({
                   id: entry,
                   characters: chars,
                   scenario_text: scenario?.scenario_text || null,
-                  message_count: Array.isArray(chat) ? chat.length : 0
+                  message_count: Array.isArray(chat) ? chat.length : 0,
+                  last_updated: mtime
                 })
               }
             }
           } catch {}
+          result.sort((a, b) => b.last_updated - a.last_updated)
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(result))
           return

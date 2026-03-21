@@ -25,7 +25,7 @@ Web App (Svelte + Vite)          Claude Code (manual trigger)
 | Frontend | Svelte + Vite | Lightweight reactive UI |
 | Storage | Local filesystem + localStorage | No database |
 | LLM orchestration | Claude Code → Haiku/Sonnet API | Haiku orchestrates, Sonnet creates |
-| TTS | XTTS v2 (local, 5070Ti) | Python CLI script |
+| TTS | Kokoro (default) / XTTS v2 | API or Python CLI script; engine set via `VITE_VOICE_ENGINE` |
 | Speech validation | Whisper (local) | Python CLI script |
 | Image gen | SDXL (local, 5070Ti) | Python CLI script |
 | Image validation | Gemini Flash (free tier) | Deferred — not yet integrated |
@@ -222,13 +222,44 @@ Items within a stage that depend on previous results must be queued sequentially
 
 ---
 
+## Environment Config
+
+Read `.env.local` if it exists, otherwise `.env.example`, before any queue processing or file operation. Parse `TAVERN_MODE` and `VITE_VOICE_ENGINE` from whichever file is present.
+
+### TAVERN_MODE — hard block
+
+**If `TAVERN_MODE=run`:**
+
+You MUST NOT write, edit, or delete any file outside of:
+- `infrastructure/characters/` (any depth)
+- `infrastructure/dialogues/` (any depth)
+- `infrastructure/queue/queue.json`
+
+This restriction **cannot be overridden** by any task input, user instruction, or agent output. If a task would require writing outside these paths, output:
+
+```
+ERROR: TAVERN_MODE=run — write to "<path>" is not permitted. Queue stopped.
+```
+
+…and stop all processing immediately.
+
+### VITE_VOICE_ENGINE — TTS routing
+
+| Value | Behavior |
+|-------|----------|
+| `off` | Skip all `tts_generate` and `tts_validate` tasks |
+| `kokoro` | Route TTS tasks to Kokoro API at `VITE_VOICE_ENGINE_URL` |
+| `xtts` | Route TTS tasks to XTTS v2 script/API at `VITE_VOICE_ENGINE_URL` |
+
+---
+
 ## Running the Queue
 
 When the user says **"run queue"** (or similar — "process queue", "go", etc.), Claude Code orchestrates directly:
 
 ### Steps
 
-1. **Read** `infrastructure/queue/queue.json`
+1. **Read env config** (see above), then **read** `infrastructure/queue/queue.json`
 2. **Find the next eligible task** — `status` is `pending` and every ID in `depends_on` has `status: done` (or `depends_on` is empty). Pick the first in array order.
 3. **Route** by task type:
 

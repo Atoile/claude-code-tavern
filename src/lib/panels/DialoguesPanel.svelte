@@ -63,7 +63,7 @@
             {#if d.scenario_text}
               <p class="text-xs text-base-content/50 leading-relaxed line-clamp-3">{d.scenario_text}</p>
             {/if}
-            <div class="text-xs text-base-content/20 font-mono">{d.id.slice(0, 8)}…</div>
+            <div class="text-xs text-base-content/30">{new Date(d.last_updated).toLocaleString()}</div>
           </div>
         </button>
       {/each}
