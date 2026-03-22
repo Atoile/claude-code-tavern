@@ -271,6 +271,11 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 | `condense_memory` | `application/dialogue/condense_memory.md` — triggered inline, not queued (see step 6) |
 
 4. If the task type is not in the table: output `ERROR: no agent defined for task type "<type>". Queue stopped.` and stop.
+4a. **For `generate_reply` tasks only:** before spawning the agent, run:
+   ```
+   python application/scripts/build_writing_rules_cache.py
+   ```
+   This rebuilds `domain/dialogue/writing_rules_cache.md` if any source file is newer than the cache. Always run it — the script skips the rebuild if the cache is already up to date.
 5. **Spawn a general-purpose subagent** with this prompt:
    ```
    Read your instructions from <AGENT_FILE> and execute the task.

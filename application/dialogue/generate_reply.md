@@ -72,7 +72,7 @@ Write each turn so that it:
 
 ## 4. Formatting rules
 
-Follow `domain/dialogue/writing_rules.md` for all speech wrapping, action description perspective, inline rules, and paragraph breaks. Also check whether `domain/dialogue/writing_rules.overwrite.md` exists — if it does, read it and apply its rules on top of the baseline (overwrite rules take precedence where they conflict).
+Read `domain/dialogue/writing_rules_cache.md` for all formatting rules — speech wrapping, action description perspective, inline rules, and paragraph breaks. This file is the pre-merged result of the baseline and any overwrite; do not read the individual source files.
 
 **Length:** Match the energy of the scene. A sharp, reactive beat may be 2–3 short paragraphs. A longer emotional or physical sequence may run more. Do not pad; do not truncate.
 

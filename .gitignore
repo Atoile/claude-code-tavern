@@ -2,5 +2,6 @@
 node_modules
 dist
 *.overwrite.md
+*_cache.md
 .env.local
 .env.*.local
