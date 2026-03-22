@@ -33,6 +33,10 @@ Read `<output_dir>/legacy.json`. The relevant character data is under `raw`. Thi
 
 A `data.json` file with the structure defined in `domain/character/schema.md`. Every field must be populated — use reasonable inference from the source material when a field isn't explicitly stated. If something truly cannot be inferred, use `null`.
 
+## Editing existing cards
+
+When the user asks to make changes to an already-repacked `data.json` (rather than importing a new PNG), use `application/character/create_from_scratch.md` and `application/character/create_from_scratch.overwrite.md` as the quality and field standard for every field being touched. This applies to partial edits too — if you're updating one section, that section must meet the create-from-scratch bar (greeting depth, lorebook structure, NSFW field completeness, etc.). The repack baseline applies only to the initial import from a SillyTavern PNG.
+
 ## Instructions for Sonnet
 
 > **Note:** Do not make any calls to the Anthropic API. You are already running inside Claude Code — just read files, run scripts, and write output directly.

@@ -238,7 +238,7 @@
     startPolling([generateReplyId], async () => {
       const leadingCharObj = selectedLeading === 'A' ? charA : charB
       const otherCharObj = selectedLeading === 'A' ? charB : charA
-      onDialogueReady({ dialogueId, charA: leadingCharObj, charB: otherCharObj, leadingChar: leadingCharObj, initialTaskIds: [] })
+      onDialogueReady({ dialogueId, charA: leadingCharObj, charB: otherCharObj, leadingChar: leadingCharObj })
     })
     } catch (err) {
       error = `Failed to start dialogue: ${err.message}`

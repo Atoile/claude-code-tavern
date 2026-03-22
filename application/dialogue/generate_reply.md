@@ -30,7 +30,7 @@ Read the following files:
 - `infrastructure/dialogues/{dialogue_id}/recent_chat.json` — recent dialogue context (last ~10 turns)
 
 **First reply rule:** If `recent_chat.json` contains exactly one entry (the opening line), treat that entry and the scenario as the only valid scene context. Do not draw on, infer from, or let bleed through any of the unselected openings in `scenario.json`. The selected opening is ground-zero — the scene has no history beyond it.
-- `infrastructure/dialogues/{dialogue_id}/short_memory.json` — immediate scene snapshot (current states, last beat), if it exists — treat as highest-priority context after `recent_chat.json`
+- `infrastructure/dialogues/{dialogue_id}/short_memory.json` — immediate scene snapshot (current states, last beat), if it exists — treat as highest-priority context after `recent_chat.json`.
 - `infrastructure/dialogues/{dialogue_id}/memory.json` — cumulative scene memory (events, arcs, relationship), if it exists
 - Character `data.json` for each character in the scene — **read only the fields listed below**
 
@@ -57,12 +57,14 @@ Do not read or load any other sections (`meta`, `lorebook`, `abilities`, `voice_
 - **Default:** the character who did *not* speak last in `recent_chat.json` goes first. Check the `speaker` of the final entry and give the other character the opening turn this round.
 - **Override:** if `user_prompt` explicitly directs a specific character's action (e.g. "as Gary Stu does X…"), that character goes first regardless of default order.
 
-Write a reply for `replying_char_id` that:
+**When `both_chars: true`, always write two turns** — one for each character — regardless of whether `user_prompt` mentions only one of them. A `user_prompt` that names or directs only one character applies **only to that character's turn**. The other character's turn is written freely from their own voice and the scene context, without incorporating the directorial note.
 
-- Continues naturally from the last line in `recent_chat.json`
+Write each turn so that it:
+
+- Continues naturally from the preceding turn in this round (or from `recent_chat.json` for the first turn)
 - Reflects the character's `personality`, `speech`, and `behavior` as defined in their `data.json`
 - Honors the scenario framing from `scenario.json`
-- Incorporates `user_prompt` if present — treat it as directorial steering, not dialogue
+- Incorporates `user_prompt` only for the character(s) it explicitly directs — treat it as directorial steering, not dialogue
 - Stays consistent with `memory.json` context if present
 - Does not break the fourth wall or acknowledge being a character
 
@@ -90,9 +92,9 @@ Do not write to `full_chat.json` or `recent_chat.json` — the orchestrator appe
 
 ---
 
-## 6. Clear the queue item
+## 6. Mark the queue item done
 
-After writing the dialogue files, remove the processed item from `infrastructure/queue/queue.json`. If the queue is now empty, write `[]`.
+After writing the output file, set the task's `"status"` field to `"done"` in `infrastructure/queue/queue.json`. Do **not** remove the item — the orchestrator removes done items after running `append_turns.py`.
 
 ---
 
@@ -104,4 +106,4 @@ After writing the dialogue files, remove the processed item from `infrastructure
 - [ ] Distinct paragraphs separated with `\n\n` — not a single run-on block
 - [ ] `user_prompt` direction honored if provided
 - [ ] New turns written as a JSON array to `output_path`
-- [ ] Queue item removed
+- [ ] Queue item marked `done` (not removed)

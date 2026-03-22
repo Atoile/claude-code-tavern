@@ -3,13 +3,14 @@
   import { readQueue, appendToQueue } from '../stores/queue.js'
   import ChatBubble from '../components/ChatBubble.svelte'
 
-  let { dialogueId, charA, charB, onBack, initialTaskIds = [] } = $props()
+  let { dialogueId, charA, charB, onBack } = $props()
 
   // charA = leading char, charB = replying char (passed from SceneSetupPanel after init)
   // leadingChar = same as charA here
 
   let messages = $state([])
   let hasCheckpoint = $state(false)
+  let hasMemory = $state(false)
   let isPolling = $state(false)
   let pollInterval = null
   let directionText = $state('')
@@ -37,9 +38,7 @@
 
   onMount(() => {
     loadMessages()
-    if (initialTaskIds.length > 0) {
-      startPolling(initialTaskIds)
-    }
+    startQueueWatcher()
   })
 
   onDestroy(() => {
@@ -48,9 +47,10 @@
 
   async function loadMessages() {
     try {
-      const [chatRes, cpRes] = await Promise.all([
+      const [chatRes, cpRes, memRes] = await Promise.all([
         fetch(`/api/dialogue/${dialogueId}/recent_chat`),
-        fetch(`/api/file-exists?path=infrastructure/dialogues/${dialogueId}/memory_checkpoint.json`)
+        fetch(`/api/file-exists?path=infrastructure/dialogues/${dialogueId}/memory_checkpoint.json`),
+        fetch(`/api/file-exists?path=infrastructure/dialogues/${dialogueId}/memory.json`)
       ])
       if (chatRes.ok) {
         const data = await chatRes.json()
@@ -61,6 +61,10 @@
       if (cpRes.ok) {
         const cpData = await cpRes.json()
         hasCheckpoint = cpData.exists
+      }
+      if (memRes.ok) {
+        const memData = await memRes.json()
+        hasMemory = memData.exists
       }
     } catch (err) {
       error = `Failed to load messages: ${err.message}`
@@ -81,18 +85,19 @@
     isPolling = false
   }
 
-  function startPolling(taskIds) {
+  function startQueueWatcher() {
     stopPolling()
-    isPolling = true
+    let wasActive = false
     pollInterval = setInterval(async () => {
       const q = await readQueue()
-      const ourTasks = q.filter(item => taskIds.includes(item.id))
-      const allDone = ourTasks.every(item => item.status === 'done' || item.status === 'error')
-      const allGone = ourTasks.length === 0
-      if (allDone || allGone) {
-        stopPolling()
-        await loadMessages()
-      }
+      const active = q.filter(item =>
+        item.input?.dialogue_id === dialogueId &&
+        item.status !== 'error'
+      )
+      const nowActive = active.length > 0
+      if (nowActive !== isPolling) isPolling = nowActive
+      if (wasActive && !nowActive) await loadMessages()
+      wasActive = nowActive
     }, 2000)
   }
 
@@ -115,7 +120,6 @@
       status: 'pending'
     }]
     await appendToQueue(tasks)
-    startPolling([taskId])
   }
 
   async function handleContinueWithDirection() {
@@ -141,7 +145,6 @@
     await appendToQueue(tasks)
     directionText = ''
     showDirectionInput = false
-    startPolling([taskId])
   }
 
   async function handleRollback() {
@@ -319,7 +322,7 @@
         + Direction
       </button>
 
-      {#if hasCheckpoint}
+      {#if messages.length >= 2 && (!hasMemory || hasCheckpoint)}
         <button
           class="btn btn-ghost btn-sm text-error"
           onclick={handleRollback}

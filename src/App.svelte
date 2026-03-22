@@ -122,8 +122,7 @@
         charA={dialogueData?.charA}
         charB={dialogueData?.charB}
         leadingChar={dialogueData?.leadingChar}
-        initialTaskIds={dialogueData?.initialTaskIds || []}
-        onBack={() => activePanel = 'dialogues'}
+onBack={() => activePanel = 'dialogues'}
       />
     {:else if activePanel === 'queue'}
       <QueueStatus standalone={true} />
