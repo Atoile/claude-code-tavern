@@ -14,11 +14,14 @@
     : character.avatarPath ? `/${character.avatarPath}` : null)
 </script>
 
-<button
+<div
+  role="button"
+  tabindex="0"
   class="card card-compact bg-base-200 hover:bg-base-100 cursor-pointer transition-all border-2
     {selected ? 'border-primary shadow-lg shadow-primary/20' : 'border-transparent'}
     w-full text-left"
   onclick={onSelect}
+  onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect()}
   aria-pressed={selected}
 >
   <div class="card-body flex-row items-center gap-3 p-3">
@@ -28,7 +31,7 @@
         <img src={avatarSrc} alt={name} class="object-cover w-full h-full" />
       {:else}
         <div class="w-full h-full flex items-center justify-center text-base-content/30">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" style="fill: none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
             <circle cx="12" cy="7" r="4"/>
           </svg>
@@ -52,10 +55,10 @@
     <!-- Selection indicator -->
     {#if selected}
       <div class="text-primary shrink-0">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" style="fill: none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12"/>
         </svg>
       </div>
     {/if}
   </div>
-</button>
+</div>

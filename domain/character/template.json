@@ -1,0 +1,139 @@
+{
+  "meta": {
+    "name": "Display Name",
+    "id": "lowercase-hyphenated-slug",
+    "source_card": "original-filename.png or null if created from scratch",
+    "repacked_at": "ISO 8601 timestamp with actual time, e.g. '2026-03-22T12:44:03Z' — not midnight"
+  },
+  "identity": {
+    "full_name": "Full name including original script if applicable, e.g. 'Mary Sue (メアリー・スー)'",
+    "aliases": ["Nicknames", "titles", "alternate names"],
+    "age": "Exact number or descriptive string, e.g. 'Appears 20–22 (true age unknown)'",
+    "gender": "female / male",
+    "species": "human / elf / vampire / etc.",
+    "occupation": ["Primary role", "Secondary role if applicable"],
+    "background_summary": "2–3 sentence core backstory. Who they are, where they come from, what defines them. Dense and specific — not a wiki synopsis but a distillation of what matters for dialogue."
+  },
+  "appearance": {
+    "summary": "Concise physical description, SDXL-friendly. One paragraph covering the immediate visual impression — what you'd notice first.",
+    "height": "In cm, e.g. '167 cm'. Estimate if not stated — never null.",
+    "build": "Body type described with character — not just 'slim' but what the slimness means, how it reads.",
+    "hair": "Color, length, style. Specific enough to distinguish from similar characters.",
+    "eyes": "Color and quality. Not just 'blue' but what kind of blue and what the eyes communicate at rest.",
+    "skin": "Tone, texture, notable features.",
+    "distinguishing_features": [
+      "Feature 1 — the thing people notice first",
+      "Feature 2 — the thing that stays with you",
+      "Feature 3 — the subtle detail that rewards closer attention"
+    ],
+    "typical_clothing": "Default outfit described with enough detail for visual generation. Include colors, materials, and the overall impression the outfit creates."
+  },
+  "personality": {
+    "core_traits": [
+      "Trait as a short phrase with context — not just 'brave' but 'brave in the specific way of someone who has already decided the outcome is acceptable'",
+      "5–8 traits total, each one a sentence that captures both the trait and its flavor"
+    ],
+    "strengths": [
+      "Positive traits and capabilities — what they're genuinely good at",
+      "Focus on traits that would surface in dialogue and interaction"
+    ],
+    "flaws": [
+      "Weaknesses, vices, blind spots — things that cause them real problems",
+      "Not cute quirks reframed as flaws — actual vulnerabilities"
+    ],
+    "values": [
+      "What they care about most — the things they'd fight for or sacrifice for"
+    ],
+    "fears": [
+      "Real fears and insecurities — the things that keep them up at night or make them flinch"
+    ],
+    "quirks": [
+      "Behavioral habits, tics, signature gestures — the small things that make them feel like a real person",
+      "Physical and verbal; involuntary preferred over deliberate"
+    ],
+    "mbti_approximation": "XXXX (The Archetype Label) — or null if genuinely unclear",
+    "emotional_baseline": "Default emotional state and temperament. How they feel when nothing particular is happening — this is the resting state the dialogue agent returns to between events."
+  },
+  "speech": {
+    "voice_description": "Tone, pace, volume, accent. How they sound, not just what they say. Specific enough that a TTS system could approximate it.",
+    "vocabulary_level": "crude / casual / educated / formal / archaic",
+    "speech_patterns": [
+      "Pattern 1 — how they construct sentences, verbal tics, pet phrases",
+      "Pattern 2 — what changes when they're emotional vs. composed",
+      "These are the most important patterns for the dialogue agent to replicate"
+    ],
+    "sample_lines": [
+      "\"A characteristic line that captures their voice in a neutral context.\"",
+      "\"A line that shows how they sound under pressure or emotion.\"",
+      "\"A line that reveals something about them through how they say it, not what they say.\"",
+      "3–5 lines total. Each should be unmistakably this character."
+    ],
+    "languages": ["Languages spoken"]
+  },
+  "behavior": {
+    "social_style": "Default interaction mode — how they engage with people by default, before any relationship modifiers apply.",
+    "relationship_defaults": {
+      "strangers": "How they treat people they don't know yet",
+      "friends": "How the dynamic shifts with people they trust",
+      "romantic": "How they approach intimacy and romantic connection — their style, not just 'is romantic'",
+      "authority": "How they respond to people with power over them",
+      "subordinates": "How they treat people under their authority or care"
+    },
+    "triggers": [
+      "Things that provoke strong reactions — what pushes their buttons and why"
+    ],
+    "comfort_behaviors": [
+      "What they do when relaxed or happy — the default-state behaviors that signal contentment"
+    ],
+    "stress_behaviors": [
+      "What they do under pressure — how stress manifests in observable behavior"
+    ]
+  },
+  "abilities": {
+    "skills": [
+      "Combat, magic, craft, social skills — what they can actually do",
+      "Focus on abilities that might come up in dialogue or scene context"
+    ],
+    "powers": [
+      "Supernatural abilities if any — described with enough specificity for a dialogue agent to reference them correctly",
+      "null if the character has no supernatural abilities"
+    ],
+    "limitations": [
+      "Weaknesses, power restrictions, things they cannot do — as important as what they can do"
+    ]
+  },
+  "voice_archetype": {
+    "suggested_role": "warrior / scholar / clergy / merchant / noble / commoner",
+    "personality_axis": "e.g. 'dominant-warm-serious' — pick from dominant/submissive, warm/cold, serious/playful",
+    "age_tier": "young / mature / elder",
+    "archetype_tag": "Combined: e.g. 'noble-dominant-warm-mature'"
+  },
+  "dialogue_seeds": {
+    "greeting": "Default opening line for a scene. Multi-paragraph: establishes setting, character's presence, mood, then a spoken line. The other character has just arrived; this character is already present. Uses writing_rules.md formatting: \"speech\", *actions*, `interior thoughts`.",
+    "alternate_greetings": [
+      "Alternate 1 — near future: assumes some prior contact or familiarity. Equally expansive as the default.",
+      "Alternate 2 — different setting, dynamic, or tone. Variety in scenario."
+    ],
+    "example_dialogues": [
+      "\"Exchange that demonstrates character voice in a neutral/everyday context.\"",
+      "\"Exchange that shows voice under emotional weight — the same character but with stakes.\"",
+      "\"Exchange that reveals personality through interaction, not exposition.\"",
+      "3–5 exchanges. Each must be unmistakably this character's voice."
+    ]
+  },
+  "lorebook": [
+    {
+      "keys": ["trigger", "keywords", "that activate this entry"],
+      "content": "Lore entry text — background, relationships, world details that the dialogue agent needs when these keywords come up in context. Dense and specific.",
+      "priority": 10
+    }
+  ],
+  "scenario_defaults": {
+    "preferred_setting": "Typical environment — where this character is most naturally encountered. Specific enough to set a scene.",
+    "typical_scenario": "Default scene premise. Written for a generic 'the other character' — adapted per-pairing by the dialogue context. What is the situation when the scene starts?"
+  },
+  "filter_tags": [
+    "gender-tag (female / male)",
+"additional tags: source franchise, species, archetype, personality descriptors"
+  ]
+}

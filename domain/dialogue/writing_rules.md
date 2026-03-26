@@ -62,6 +62,17 @@ Action descriptions are written in **first person** from the speaking character'
 
 ---
 
+## Turn ownership
+
+Each turn belongs entirely to the character speaking it. A character's turn ends where their actions end.
+
+- A turn contains only **that character's own actions**, reactions, speech, and interiority
+- If Character A's turn ends mid-sequence (e.g., drawing a weapon but not yet striking), Character B's turn reacts to that stopped state — it does not continue or complete A's action
+- A's next action belongs in A's **next turn**, not in B's current turn
+- Neither character narrates the other character taking new actions within their own turn
+
+---
+
 ## Inline rules
 
 Action and dialogue may appear on the same line:

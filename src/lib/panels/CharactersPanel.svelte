@@ -59,7 +59,7 @@
   <div class="flex items-center justify-between mb-3">
     <h1 class="text-xl font-bold">Characters</h1>
     <button class="btn btn-xs btn-ghost" onclick={loadCharacters}>
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" style="fill: none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="23 4 23 10 17 10"/>
         <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
       </svg>
@@ -68,7 +68,7 @@
   </div>
 
   <label class="input input-sm w-full flex items-center gap-2" class:mb-2={allTags.length > 0} class:mb-4={allTags.length === 0}>
-    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-base-content/40 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-base-content/40 shrink-0" viewBox="0 0 24 24" style="fill: none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
     </svg>
     <input type="text" placeholder="Search characters…" class="grow bg-transparent outline-none text-sm" bind:value={searchQuery} />

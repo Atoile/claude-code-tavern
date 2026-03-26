@@ -37,7 +37,7 @@ Web App (Svelte + Vite)          Claude Code (manual trigger)
 | Dialogue generation | Sonnet |
 | Scene direction interpretation | Sonnet |
 | Character card repacking | Sonnet |
-| Queue orchestration | Haiku |
+| Queue orchestration | Sonnet |
 | SDXL prompt generation | Haiku |
 | Voice archetype assignment | Haiku |
 
@@ -138,6 +138,8 @@ Dimensions: role × personality axis × age tier.
 One XTTS v2 voice model per archetype, not per character. Auto-assigned by Haiku on import, user can override in UI.
 
 ## UI Design
+
+**SVG conventions:** Inline SVGs must use `style="fill: none"` instead of `fill="none"` — the Svelte language server flags `fill` as an obsolete HTML attribute. All other SVG presentation attributes (`stroke`, `stroke-width`, `stroke-linecap`, `stroke-linejoin`) are fine as-is.
 
 Mobile chat-inspired layout:
 - Character avatars from card PNG
@@ -259,6 +261,8 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 
 ### Steps
 
+0. **Overwrite check:** Before doing anything else, check whether `CLAUDE.overwrite.md` exists in the project root. If it does, read it — its contents extend these baseline instructions and take precedence where they conflict.
+
 1. **Read env config** (see above), then **read** `infrastructure/queue/queue.json`
 2. **Find the next eligible task** — `status` is `pending` and every ID in `depends_on` has `status: done` (or `depends_on` is empty). Pick the first in array order.
 3. **Route** by task type:
@@ -267,16 +271,74 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 |---|---|
 | `repack_character` | `application/character/repack.md` |
 | `optimize_scenario` | `application/dialogue/optimize_scenario.md` |
-| `generate_reply` | `application/dialogue/generate_reply.md` |
+| `generate_reply` | 3-phase pipeline (see step 4a) |
 | `condense_memory` | `application/dialogue/condense_memory.md` — triggered inline, not queued (see step 6) |
 
 4. If the task type is not in the table: output `ERROR: no agent defined for task type "<type>". Queue stopped.` and stop.
-4a. **For `generate_reply` tasks only:** before spawning the agent, run:
+
+4a. **For `generate_reply` tasks — 3-phase pipeline:**
+
+   **Phase 0 — Prep scripts:** Run all three before anything else:
    ```
    python application/scripts/build_writing_rules_cache.py
+   python application/scripts/build_context_cache.py --dialogue-id {input.dialogue_id}
+   python application/scripts/extract_prose_tail.py --dialogue-id {input.dialogue_id}
    ```
-   This rebuilds `domain/dialogue/writing_rules_cache.md` if any source file is newer than the cache. Always run it — the script skips the rebuild if the cache is already up to date.
-5. **Spawn a general-purpose subagent** with this prompt:
+   The first two scripts are safe to run every time — they skip when nothing needs doing. The third extracts the last 2 turns (truncated to ~500 chars each) into `prose_tail.json` for prose agent voice matching.
+
+   **Phase 1 — Plan:** Spawn a general-purpose subagent using **Sonnet** (`model: sonnet`):
+   ```
+   Read your instructions from application/dialogue/generate_reply_plan.md and execute the task.
+
+   Task input (exact queue item):
+   <TASK_JSON>
+
+   Working directory is the repository root.
+   ```
+   Wait for it to finish. It writes `infrastructure/dialogues/{dialogue_id}/reply_plan.json`.
+
+   **Phase 2 — Expand + Respond:** Read `reply_plan.json` and `prose_tail.json`, then:
+
+   - If `reply_plan.json` has only one entry in `turns`: spawn only the expand agent (single-turn plan — no respond needed).
+   - If `turns[0].verbatim == true` (first-turn mode): write `reply_expand.json` directly from `turns[0].text` (no expand agent), then spawn only the respond agent.
+   - Otherwise: spawn **two** general-purpose subagents simultaneously (expand + respond). **Both must be launched in the same tool call — do not spawn expand, wait for it to finish, then spawn respond. They are independent and must run in parallel.**
+
+   Expand agent (skip if verbatim — write the file directly instead):
+   ```
+   Read your instructions from application/dialogue/generate_reply_expand.md and execute the task.
+
+   Task input (exact queue item):
+   <TASK_JSON>
+
+   Plan output:
+   <CONTENTS_OF_REPLY_PLAN_JSON>
+
+   Prose tail (last 2 turns, truncated, for voice continuity):
+   <CONTENTS_OF_PROSE_TAIL_JSON>
+
+   Working directory is the repository root.
+   ```
+
+   Respond agent (same structure but with `generate_reply_respond.md`).
+
+   Wait for all spawned agents to finish.
+
+   **Phase 3 — Merge:** Run the merge script. If `CLAUDE.overwrite.md` defines additional Phase 3 agents, launch them in the same tool call as merge (parallel):
+
+   ```
+   python application/scripts/merge_reply.py --dialogue-id {input.dialogue_id} --output-path {output_path}
+   ```
+
+   Wait for all Phase 3 steps to finish.
+
+   **Phase 4 — Append:** Run:
+   ```
+   python application/scripts/append_turns.py --dialogue-id {input.dialogue_id} --turns-file {output_path} [--user-prompt "{input.user_prompt}"]
+   ```
+   Include `--user-prompt` only if `input.user_prompt` is present in the task input.
+   If `CLAUDE.overwrite.md` defines additional Phase 4 steps, run them sequentially after append.
+
+4b. **For all other task types:** Spawn a general-purpose subagent with:
    ```
    Read your instructions from <AGENT_FILE> and execute the task.
 
@@ -285,11 +347,13 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 
    Working directory is the repository root.
    ```
-6. **After the task agent finishes:**
+
+5. **After the task completes:**
    - For `generate_reply` tasks:
-     1. Run `python application/scripts/append_turns.py --dialogue-id {input.dialogue_id} --turns-file {output_path}`. This appends the agent's output to `full_chat.json` and `recent_chat.json` programmatically.
+     1. Check append output for `CONDENSE_NEEDED`.
      2. If the script outputs `CONDENSE_NEEDED {dialogue_id}`, immediately spawn a `condense_memory` subagent using `application/dialogue/condense_memory.md` with the dialogue_id. Do not queue it — run it inline before moving on.
-   - Re-read `infrastructure/queue/queue.json`. If no eligible pending tasks remain, remove all `status: done` items and write the file back.
+   - Set the completed task's `"status"` to `"done"` in the queue (already in memory — agents do not touch `queue.json`) and write it back.
+   - If no eligible pending tasks remain, remove all `status: done` items and write the file back.
 
 ## Key Principles
 

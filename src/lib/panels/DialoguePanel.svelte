@@ -102,6 +102,9 @@
   }
 
   async function handleContinue() {
+    if (showDirectionInput && directionText.trim()) {
+      return handleContinueWithDirection()
+    }
     error = null
     const taskId = crypto.randomUUID()
     const tasks = [{
@@ -149,9 +152,10 @@
 
   async function handleRollback() {
     try {
-      const [fullChatRes, checkpointRes] = await Promise.all([
+      const [fullChatRes, checkpointRes, replyHistoryRes] = await Promise.all([
         fetch(`/api/dialogue/${dialogueId}/full_chat`),
-        fetch(`/api/dialogue/${dialogueId}/memory_checkpoint`)
+        fetch(`/api/dialogue/${dialogueId}/memory_checkpoint`),
+        fetch(`/api/dialogue/${dialogueId}/reply_history`)
       ])
       if (!fullChatRes.ok) return
       const fullChat = await fullChatRes.json()
@@ -160,8 +164,18 @@
 
       const checkpoint = checkpointRes.ok ? await checkpointRes.json() : null
       const trimmed = msgs.slice(0, -2)
+      const removed = msgs.slice(-2)
 
-      await Promise.all([
+      const lastTurn = trimmed.at(-1)
+      const restoredState = lastTurn?._state ?? null
+      const restoredPrompt = removed[0]?._prompt ?? null
+
+      const replyHistory = replyHistoryRes.ok ? await replyHistoryRes.json() : null
+      const trimmedHistory = Array.isArray(replyHistory) && replyHistory.length > 0
+        ? replyHistory.slice(0, -1)
+        : replyHistory
+
+      const rollbackOps = [
         fetch(`/api/dialogue/${dialogueId}/full_chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -171,24 +185,45 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(trimmed.slice(-10))
-        })
-      ])
+        }),
+        restoredState
+          ? fetch(`/api/dialogue/${dialogueId}/turn_state`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(restoredState)
+            })
+          : fetch(`/api/dialogue/${dialogueId}/turn_state`, { method: 'DELETE' }),
+        fetch(`/api/dialogue/${dialogueId}/short_memory`, { method: 'DELETE' }),
+        trimmedHistory !== null
+          ? fetch(`/api/dialogue/${dialogueId}/reply_history`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(trimmedHistory)
+            })
+          : Promise.resolve()
+      ]
 
       // If rollback crossed the last condensing boundary, restore memory from checkpoint
       if (checkpoint && trimmed.length < checkpoint.condensed_at) {
-        await Promise.all([
+        rollbackOps.push(
           fetch(`/api/dialogue/${dialogueId}/memory`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(checkpoint.memory)
           }),
-          fetch(`/api/dialogue/${dialogueId}/memory_checkpoint`, { method: 'DELETE' }),
-          fetch(`/api/dialogue/${dialogueId}/short_memory`, { method: 'DELETE' })
-        ])
+          fetch(`/api/dialogue/${dialogueId}/memory_checkpoint`, { method: 'DELETE' })
+        )
         hasCheckpoint = false
       }
 
+      await Promise.all(rollbackOps)
+
       await loadMessages()
+
+      if (restoredPrompt) {
+        directionText = restoredPrompt
+        showDirectionInput = true
+      }
     } catch (err) {
       error = `Rollback failed: ${err.message}`
     }
@@ -217,7 +252,7 @@
   <!-- Header -->
   <div class="flex items-center gap-3 px-4 py-3 border-b border-base-100 bg-base-200 shrink-0">
     <button class="btn btn-ghost btn-sm btn-square" onclick={onBack} aria-label="Back">
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" style="fill: none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="15 18 9 12 15 6"/>
       </svg>
     </button>
@@ -250,7 +285,7 @@
 
   {#if error}
     <div class="alert alert-error text-sm mx-4 mt-2 shrink-0">
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" style="fill: none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
       </svg>
       {error}
@@ -338,7 +373,7 @@
         disabled={isPolling}
         aria-label="Refresh"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" style="fill: none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"/>
           <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
         </svg>

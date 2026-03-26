@@ -6,6 +6,12 @@
 
 ---
 
+## Template reference
+
+Use `domain/character/template.json` as the structural reference for all fields. Read it before writing any card — it defines the expected shape, depth, and tone for every field. Do not look at existing character cards for structure; the template is the single source of truth.
+
+---
+
 ## General principles
 
 1. **Synthesize, don't list.** Write fields as clean, actionable data — not raw bullet dumps. Personality, speech, and behavior fields should be usable directly by a dialogue agent.

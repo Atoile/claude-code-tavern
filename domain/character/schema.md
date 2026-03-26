@@ -6,6 +6,8 @@ Canonical shape of a repacked character file at `infrastructure/characters/{id}/
 
 All fields must be populated. Use `null` only when a value genuinely cannot be inferred from source material.
 
+**Template:** `domain/character/template.json` provides a complete structural reference with inline guidance for each field's expected depth and tone. Use it as the starting point for both new cards and repacks.
+
 ---
 
 ## Top-level sections
@@ -149,7 +151,7 @@ Array of lore entries:
 {
   "keys": ["trigger keywords"],
   "content": "string — lore entry text",
-  "priority": number
+  "priority": 1
 }
 ```
 
@@ -171,4 +173,3 @@ If the source lorebook has 20+ entries, keep only those directly relevant to thi
 `string[]` — copied verbatim from the raw card's `tags` field, then:
 - Deduplicated (case-insensitive, keep first occurrence)
 - Gender tag ensured: `female` or `male`
-- Dominance tag ensured: `dominant`, `submissive`, `switch`, `dominant-leaning`, or `submissive-leaning`

@@ -31,11 +31,13 @@ Read `<output_dir>/legacy.json`. The relevant character data is under `raw`. Thi
 
 ## Output
 
-A `data.json` file with the structure defined in `domain/character/schema.md`. Every field must be populated — use reasonable inference from the source material when a field isn't explicitly stated. If something truly cannot be inferred, use `null`.
+A `data.json` file with the structure defined in `domain/character/schema.md`. Use `domain/character/template.json` as the structural reference — it shows the expected shape, depth, and tone for every field. Do not look at existing character cards for structure; the template is the single source of truth.
+
+Every field must be populated — use reasonable inference from the source material when a field isn't explicitly stated. If something truly cannot be inferred, use `null`.
 
 ## Editing existing cards
 
-When the user asks to make changes to an already-repacked `data.json` (rather than importing a new PNG), use `application/character/create_from_scratch.md` and `application/character/create_from_scratch.overwrite.md` as the quality and field standard for every field being touched. This applies to partial edits too — if you're updating one section, that section must meet the create-from-scratch bar (greeting depth, lorebook structure, NSFW field completeness, etc.). The repack baseline applies only to the initial import from a SillyTavern PNG.
+When the user asks to make changes to an already-repacked `data.json` (rather than importing a new PNG), use `application/character/create_from_scratch.md` and `application/character/create_from_scratch.overwrite.md` as the quality and field standard for every field being touched. This applies to partial edits too — if you're updating one section, that section must meet the create-from-scratch bar (greeting depth, lorebook structure, field completeness, etc.). The repack baseline applies only to the initial import from a SillyTavern PNG.
 
 ## Instructions for Sonnet
 
@@ -53,7 +55,7 @@ When the user asks to make changes to an already-repacked `data.json` (rather th
 8. **Filter tags.** Start from `legacy.json` → `raw.tags` (empty array if absent). Then:
     - **Deduplicate** — case-insensitive, keep first occurrence
     - **Gender** — if no tag matching the character's gender is present, add one: `female` or `male`
-    - **Dominance leaning** — if no tag indicating dom/sub dynamic is present, estimate from personality and behavior data and add one: `dominant`, `submissive`, `switch`, or `dominant-leaning` / `submissive-leaning` for characters with a clear but not absolute tendency
+
 9. **Replace `{{user}}` and `{{char}}`** placeholders with "the other character" / the character's actual name respectively.
 10. **Output valid JSON only.** No markdown wrapping, no commentary outside the JSON structure.
-11. **Mark done.** After writing `data.json`, update the task's `"status"` to `"done"` in `infrastructure/queue/queue.json`.
+11. **Signal completion.** After writing `data.json`, your work is done. Do **not** modify `infrastructure/queue/queue.json` — the orchestrator handles all queue state.

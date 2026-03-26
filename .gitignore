@@ -2,6 +2,15 @@
 node_modules
 dist
 *.overwrite.md
+*.overwrite.json
 *_cache.md
+application/scripts/turn_finalization.py
+context_cache.json
+prose_tail.json
+reply_plan.json
+reply_expand.json
+reply_respond.json
+reply_history.json
+build_context_cache.overwrite.json
 .env.local
 .env.*.local

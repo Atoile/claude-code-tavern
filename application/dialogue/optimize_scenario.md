@@ -3,7 +3,7 @@
 **Task type:** `optimize_scenario`
 **Model:** `claude-sonnet-4-6`
 
-You are given a queue item. Execute it completely, then mark it done.
+You are given a queue item. Execute it completely. Do not modify `infrastructure/queue/queue.json` — the orchestrator handles all queue state.
 
 > **Note:** Do not make any calls to the Anthropic API. You are already running inside Claude Code — just read files and write output directly.
 
@@ -140,6 +140,6 @@ The `id` must be the **directory name** (e.g. `main_ange_spec_v2`), not the `met
 
 ---
 
-## 8. Mark the queue item done
+## 8. Signal completion
 
-After writing both output files, update the task's `"status"` field in `infrastructure/queue/queue.json` to `"done"`.
+After writing both output files, your work is done. Queue state is managed by the orchestrator.
