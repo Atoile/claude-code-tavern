@@ -226,7 +226,7 @@ Items within a stage that depend on previous results must be queued sequentially
 
 ## Environment Config
 
-Read `.env.local` if it exists, otherwise `.env.example`, before any queue processing or file operation. Parse `TAVERN_MODE` and `VITE_VOICE_ENGINE` from whichever file is present.
+Read `.env.local` if it exists, otherwise `.env.example`, before any queue processing or file operation. Parse `TAVERN_MODE`, `TAVERN_PLANNER`, `TAVERN_TURNS`, and `VITE_VOICE_ENGINE` from whichever file is present.
 
 ### TAVERN_MODE — hard block
 
@@ -244,6 +244,20 @@ ERROR: TAVERN_MODE=run — write to "<path>" is not permitted. Queue stopped.
 ```
 
 …and stop all processing immediately.
+
+### TAVERN_PLANNER — plan phase model
+
+| Value | Model used for Phase 1 (plan) |
+|-------|-------------------------------|
+| `sonnet` | `claude-sonnet-4-6` |
+| `haiku` | `claude-haiku-4-5-20251001` |
+
+### TAVERN_TURNS — expand/respond execution strategy
+
+| Value | Behavior |
+|-------|----------|
+| `parallel` | Expand + respond agents spawn in the same tool call (current default) |
+| `sequential` | Expand agent spawns first; after it finishes, respond agent spawns and receives expand's output |
 
 ### VITE_VOICE_ENGINE — TTS routing
 
@@ -278,15 +292,16 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 
 4a. **For `generate_reply` tasks — 3-phase pipeline:**
 
-   **Phase 0 — Prep scripts:** Run all three before anything else:
+   **Phase 0 — Prep scripts:** Run all four before anything else:
    ```
    python application/scripts/build_writing_rules_cache.py
    python application/scripts/build_context_cache.py --dialogue-id {input.dialogue_id}
    python application/scripts/extract_prose_tail.py --dialogue-id {input.dialogue_id}
+   python application/scripts/extract_last_turn.py --dialogue-id {input.dialogue_id}
    ```
-   The first two scripts are safe to run every time — they skip when nothing needs doing. The third extracts the last 2 turns (truncated to ~500 chars each) into `prose_tail.json` for prose agent voice matching.
+   All scripts are safe to run every time — they skip or overwrite cleanly. `extract_prose_tail.py` writes the last 2 turns (truncated to ~500 chars) into `prose_tail.json` for voice matching. `extract_last_turn.py` writes the single last turn (full text) into `last_turn.json` for expand agent reaction context in sequential mode.
 
-   **Phase 1 — Plan:** Spawn a general-purpose subagent using **Sonnet** (`model: sonnet`):
+   **Phase 1 — Plan:** Spawn a general-purpose subagent using the model set by `TAVERN_PLANNER` (`sonnet` → `claude-sonnet-4-6`, `haiku` → `claude-haiku-4-5-20251001`):
    ```
    Read your instructions from application/dialogue/generate_reply_plan.md and execute the task.
 
@@ -301,9 +316,15 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 
    - If `reply_plan.json` has only one entry in `turns`: spawn only the expand agent (single-turn plan — no respond needed).
    - If `turns[0].verbatim == true` (first-turn mode): write `reply_expand.json` directly from `turns[0].text` (no expand agent), then spawn only the respond agent.
-   - Otherwise: spawn **two** general-purpose subagents simultaneously (expand + respond). **Both must be launched in the same tool call — do not spawn expand, wait for it to finish, then spawn respond. They are independent and must run in parallel.**
+   - Otherwise: follow the strategy set by `TAVERN_TURNS`:
 
-   Expand agent (skip if verbatim — write the file directly instead):
+   **`TAVERN_TURNS=parallel`:** Spawn expand + respond in the same tool call. **Both must be launched in the same tool call — do not spawn expand, wait for it to finish, then spawn respond.**
+
+   **`TAVERN_TURNS=sequential`:** Spawn expand first. Wait for it to finish and read `reply_expand.json`. Then spawn the respond agent with expand's output included.
+
+   Expand agent prompt (skip if verbatim — write the file directly instead):
+
+   **`TAVERN_TURNS=parallel`:**
    ```
    Read your instructions from application/dialogue/generate_reply_expand.md and execute the task.
 
@@ -319,7 +340,30 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
    Working directory is the repository root.
    ```
 
-   Respond agent (same structure but with `generate_reply_respond.md`).
+   **`TAVERN_TURNS=sequential`:** Add the last turn so the expand agent knows what it is reacting to:
+   ```
+   Read your instructions from application/dialogue/generate_reply_expand.md and execute the task.
+
+   Task input (exact queue item):
+   <TASK_JSON>
+
+   Plan output:
+   <CONTENTS_OF_REPLY_PLAN_JSON>
+
+   Prose tail (last 2 turns, truncated, for voice continuity):
+   <CONTENTS_OF_PROSE_TAIL_JSON>
+
+   Last turn (the message this character is directly reacting to, full text):
+   <CONTENTS_OF_LAST_TURN_JSON>
+
+   Working directory is the repository root.
+   ```
+
+   Respond agent prompt (`generate_reply_respond.md`, same structure as parallel expand). When `TAVERN_TURNS=sequential`, add:
+   ```
+   Expand output (the first character's turn, already written):
+   <CONTENTS_OF_REPLY_EXPAND_JSON>
+   ```
 
    Wait for all spawned agents to finish.
 

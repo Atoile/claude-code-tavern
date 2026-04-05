@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
   import { readQueue, appendToQueue } from '../stores/queue.js'
+  import { marked } from 'marked'
 
   let { charA, charB, onBack, onDialogueReady, resumeDialogueId = null } = $props()
 
@@ -366,7 +367,7 @@
             class="text-left rounded-xl p-3 text-sm leading-relaxed transition-colors border-2 {selectedOpening === i ? 'border-primary bg-primary/10' : 'border-transparent bg-base-200 hover:bg-base-100'}"
             onclick={() => selectedOpening = i}
           >
-            {opening}
+            {@html marked.parse(opening, { breaks: true })}
           </button>
         {/each}
       </div>
