@@ -437,7 +437,9 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 
    *Eventual runtime (not yet enabled):* Spawn a Sonnet handler agent using `application/dialogue/handle_plan_validation.md`. The handler classifies each issue, then:
    - **Critical issues** → handler deletes `reply_plan.json` + `plan_validation.json`, writes `handler_result.json` with `status: "restart"`. The orchestrator returns to Phase 1 (replan from scratch).
-   - **Fixable issues** → handler patches `reply_plan.json` in place, deletes the old `plan_validation.json`, writes `handler_result.json` with `status: "patched"`. The orchestrator returns to Phase 1b (re-run validator against the patched plan).
+   - **Fixable issues** → handler patches `reply_plan.json` in place, runs `check_beat_sizing.py` to verify, deletes the old `plan_validation.json`, writes `handler_result.json` with `status: "patched"` and a `revalidation_needed` boolean. Routing depends on the flag:
+     - `revalidation_needed: true` (any structural patch — split, weight bump, extract-to-new-beat, mixed) → orchestrator returns to Phase 1b (re-run validator against the patched plan).
+     - `revalidation_needed: false` (trim-only patches, sizing tool confirmed PASS) → orchestrator skips Phase 1b and proceeds directly to Phase 2. Pure trims cannot regress any non-sizing check, and the sizing tool has already verified the only thing a trim could break.
 
    The handler is enabled once its "Known issue handling rules" section has enough accumulated coverage to handle failures autonomously.
 

@@ -11,7 +11,7 @@ Scenes have **N participants** (currently 2 or 3). The plan's `turns[]` is varia
 
 > **Note:** Do not make any calls to the Anthropic API. You are already running inside Claude Code — just read files and write output directly.
 
-> **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not.
+> **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not. **Exception:** check 2b3 invokes `python application/scripts/check_beat_sizing.py` via Bash — this is explicitly authorized because deterministic word counting is delegated to a script.
 
 > **Overwrite check:** Before proceeding, check whether `application/dialogue/validate_plan.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
 
@@ -75,21 +75,30 @@ Read `characters.json` for `player_id`. If `player_id` is set AND the player cha
 
 **Standard mode (non-narrator):**
 
-For each turn:
-- `weight` must be one of `reaction`, `action`, `inflection`, `climax`
-- `beats` must be a non-empty array of strings
-- `tone` must be a string ≤ 40 words
-- **`len(beats)` must be within the weight's hard cap** (count mechanically):
-  - `reaction` → **1-2 beats**
-  - `action` → **2-3 beats**
-  - `inflection` → **3-4 beats**
-  - `climax` → **4-6 beats**
-- **Each beat string must be ≤ 25 words** (count mechanically — split on whitespace)
-- Flag as **error** if any turn's `len(beats)` exceeds its weight cap
-- Flag as **error** if any beat string exceeds 25 words
-- Flag as **error** if any beat string contains more than one verb governing a distinct action (e.g. "Alice stands, crosses the floor, speaks, and stops" is 3-4 beats compressed into one string — this is beat smuggling and must be flagged)
-- Flag as **warning** if `inflection` or `climax` weight is used without a clear pivot/payoff justification in the `tone` field (these should be rare)
-- Most turns in a sustained 3-character scene should be `reaction` — flag as warning if a round has zero `reaction` turns
+**Run the deterministic sizing tool first.** Do NOT count words by eye — the word counts drift across validation passes when done manually, producing phantom violations. Invoke:
+
+```
+python application/scripts/check_beat_sizing.py --dialogue-id {dialogue_id}
+```
+
+This writes `infrastructure/dialogues/{dialogue_id}/beat_sizing.json` and prints a PASS/FAIL summary. Read `beat_sizing.json` — it contains authoritative word counts per beat, per tone, and beat-count-vs-weight-cap status for every turn. Use these counts verbatim when generating issues. Rules the tool enforces:
+
+- Beat word cap: **25 words** (whitespace-split count)
+- Tone word cap: **40 words**
+- Weight→beat-count caps: `reaction` 1-2, `action` 2-3, `inflection` 3-4, `climax` 4-6
+
+For each violation in `beat_sizing.json`'s `violations` array, emit an issue:
+- `kind: "beat_oversized"` → emit issue with `check: "2b3_beat_oversized"`, severity `error`, speaker, detail (copy the tool's `detail` string, which includes exact word count and excess).
+- `kind: "tone_oversized"` → emit issue with `check: "2b3_tone_oversized"`, severity `error`, speaker, detail.
+- `kind: "beat_count"` → emit issue with `check: "2b3_beat_count"`, severity `error`, speaker, detail.
+
+**In addition to the tool's output, apply these semantic checks by hand** (the script can't determine these — they require judgment):
+
+- `weight` must be one of `reaction`, `action`, `inflection`, `climax` — flag any other value as **error** (`check: "2b3_weight_invalid"`).
+- `beats` must be a non-empty array of strings; `tone` must be a non-empty string — flag missing/wrong-type as **error**.
+- **Beat smuggling** — flag as **error** (`check: "2b3_beat_smuggling"`) if any beat string contains more than one verb governing a distinct *volitional motor action* (e.g. "Alice stands, crosses the floor, speaks, and stops" is 3-4 actions compressed into one beat). Do NOT flag sensation bundles (multiple sensory facets of one event) or descriptor stuffing (one action bloated with appositive/parenthetical detail) as smuggling — those are already covered by `2b3_beat_oversized` when they bust the word cap, and they are a different failure mode. True smuggling is specifically multiple sequenced volitional actions.
+- Flag as **warning** if `inflection` or `climax` weight is used without a clear pivot/payoff justification in the `tone` field (these should be rare — inflection = first touch/kiss/reveal/confession/TBC threshold; climax = orgasm/death/departure/final arc line).
+- Most turns in a sustained 3-character scene should be `reaction` — flag as warning if a round has zero `reaction` turns.
 
 **Narrator mode exemption:** When `mode` is `"narrator"`, the `weight` field is NOT used. Instead, turns have a `type` field (`"speech"` or `"narration"`). Apply these rules instead of the standard weight checks:
 
