@@ -108,10 +108,8 @@ Processing: read FIFO → respect `depends_on` ordering → set `processing` →
 | Type | Model | Description |
 |------|-------|-------------|
 | `repack_character` | Sonnet | Extract + synthesize SillyTavern card into `data.json` |
-| `optimize_scenario` | Sonnet | Generate interaction scenario tailored to two specific characters |
-| `optimize_opening` | Sonnet | Adapt selected greeting from user-facing to character-to-character framing |
-| `write_opening_line` | Sonnet | Commit leading character's opening line to dialogue files |
-| `generate_reply` | Sonnet | Generate next dialogue round from one or both characters |
+| `optimize_scenario` | Sonnet | Generate interaction scenario tailored to the scene's participant set (2 or more characters) |
+| `generate_reply` | Sonnet | Generate the next dialogue round — variable-length turn list, planner picks who speaks |
 | `sdxl_prompt` | Haiku | Generate SDXL image prompt from character appearance data |
 | `tts_generate` | — | Shell out to `application/scripts/tts_generate.py` (XTTS v2) |
 | `tts_validate` | — | Shell out to `application/scripts/tts_validate.py` (Whisper) |
@@ -152,25 +150,20 @@ Mobile chat-inspired layout:
 
 ### Character Selection (UI)
 
-Characters list distinguishes **repacked** vs **raw** — two separate lists. A character cannot appear on both. User selects two characters (from either list).
+Characters list distinguishes **repacked** vs **raw** — two separate lists. A character cannot appear on both. The user selects **2 or more characters** (currently capped at 4) from either list to start a scene.
 
 ---
 
 ### Stage 1 — Scene Setup (queue → Claude Code → queue empty → UI unpauses)
 
-**If either character is raw**, queue items (parallel where noted):
+For each raw character in the selection, the frontend queues a `repack_character` task (parallel). After all repacks complete, it queues a single `optimize_scenario`:
 ```
 repack_character { char: A }   ← parallel
-repack_character { char: B }   ← parallel
-optimize_scenario { char_a: A, char_b: B }   ← depends on both repacks
+repack_character { char: B }   ← parallel (one per raw participant)
+optimize_scenario { participants: [A, B, ...] }   ← depends on all repacks
 ```
 
-**If both already repacked**, queue:
-```
-optimize_scenario { char_a: A, char_b: B }
-```
-
-`optimize_scenario` — Sonnet reads both characters' `data.json` and writes a scenario tailored to their interaction into `infrastructure/dialogues/{id}/scenario.json`. It also suggests 2-3 starting dialogue options derived from the leading character's `dialogue_seeds`.
+`optimize_scenario` — Sonnet reads every participant's `data.json` and writes a scenario tailored to their interaction into `infrastructure/dialogues/{id}/scenario.json`. The output is a participant-id-keyed dict with one entry per character, each containing an adapted scenario and the character's adapted greetings (one per source line).
 
 After queue clears, UI shows:
 - The optimized scenario
@@ -179,18 +172,16 @@ After queue clears, UI shows:
 
 ---
 
-### Stage 2 — Dialogue Initialization (queue → Claude Code → queue empty → UI enters chat)
+### Stage 2 — Dialogue Initialization (frontend writes directly, then navigates immediately)
 
-After user selects leading character and starting dialogue, queue:
-```
-optimize_opening { dialogue_id, leading_char, selected_greeting }
-write_opening_line { dialogue_id, leading_char }
-generate_reply { dialogue_id, replying_char }
-```
+After user selects the leading character and starting greeting, the frontend:
 
-- `optimize_opening` — Sonnet adapts the selected greeting from user-facing to character-to-character framing, writes to `infrastructure/dialogues/{id}/full_chat.json` and `recent_chat.json`
-- `write_opening_line` — final leading character line committed
-- `generate_reply` — second character's first reply generated and appended
+1. Writes the opening line directly into `full_chat.json` and `recent_chat.json` via the dev-server REST endpoints (no queue task).
+2. Updates `characters.json` with `leading_id`.
+3. Queues a single `generate_reply { dialogue_id, leading_char_id }` task as a normal reply (identical shape to every subsequent Continue).
+4. **Navigates to the dialogue view immediately** — no pause for queue completion. The opening line is already visible; the background queue item fills in the reply when it finishes. The dialogue panel's existing queue watcher handles the progress indicator.
+
+There is no "first-turn mode." The opening line is just another entry in `recent_chat.json`, and the planner treats it exactly like any other prior turn to react to.
 
 ---
 
@@ -198,10 +189,9 @@ generate_reply { dialogue_id, replying_char }
 
 | Action | Queue items | Notes |
 |--------|-------------|-------|
-| **Continue** | `generate_reply { both chars }` | Both characters reply as they see fit |
-| **Continue with direction** | `generate_reply { both chars, user_prompt }` | User's steering prompt included |
-| **Rollback** | *(no queue)* | Remove last round from `recent_chat.json` and `full_chat.json` |
-| **Reset dialogue** | `generate_reply { replying_char }` | Clears everything after first opening line, regenerates first reply |
+| **Continue** | `generate_reply { dialogue_id, leading_char_id }` | Planner decides who speaks this round (1 to N participants) |
+| **Continue with direction** | `generate_reply { dialogue_id, leading_char_id, user_prompt }` | User's steering prompt included; planner respects per-character or scene-level scope |
+| **Rollback** | *(no queue)* | Remove the **single most recent turn** from `recent_chat.json`, `full_chat.json`, and `reply_history.json` |
 
 ---
 
@@ -226,7 +216,14 @@ Items within a stage that depend on previous results must be queued sequentially
 
 ## Environment Config
 
-Read `.env.local` if it exists, otherwise `.env.example`, before any queue processing or file operation. Parse `TAVERN_MODE`, `TAVERN_PLANNER`, `TAVERN_TURNS`, and `VITE_VOICE_ENGINE` from whichever file is present.
+Read `.env.local` if it exists, otherwise `.env.example`, before any queue processing or file operation. Parse `TAVERN_MODE`, `TAVERN_PLANNER`, `TAVERN_TURNS`, `TAVERN_VERBATIM`, `TAVERN_CHAT_MODE`, `TAVERN_NARRATOR_VOICE`, and `VITE_VOICE_ENGINE` from whichever file is present.
+
+**Exception — skip `.env` read for writes confined to the run-mode whitelist.** A PreToolUse hook already enforces the `TAVERN_MODE=run` write restriction for these paths, so reading `.env` purely to check `TAVERN_MODE` is redundant when the operation only touches:
+- `infrastructure/characters/` (any depth)
+- `infrastructure/dialogues/` (any depth)
+- `infrastructure/queue/queue.json`
+
+Still read `.env` when behavior depends on the other flags (`TAVERN_CHAT_MODE`, `TAVERN_PLANNER`, `TAVERN_TURNS`, `TAVERN_VERBATIM`, `TAVERN_NARRATOR_VOICE`, `VITE_VOICE_ENGINE`) — those aren't hook-enforced and drive pipeline routing.
 
 ### TAVERN_MODE — hard block
 
@@ -252,12 +249,37 @@ ERROR: TAVERN_MODE=run — write to "<path>" is not permitted. Queue stopped.
 | `sonnet` | `claude-sonnet-4-6` |
 | `haiku` | `claude-haiku-4-5-20251001` |
 
-### TAVERN_TURNS — expand/respond execution strategy
+### TAVERN_TURNS — turn dispatch strategy
 
 | Value | Behavior |
 |-------|----------|
-| `parallel` | Expand + respond agents spawn in the same tool call (current default) |
-| `sequential` | Expand agent spawns first; after it finishes, respond agent spawns and receives expand's output |
+| `sequential` | Default. Each turn agent spawns after the previous one finishes; later turns read prior turns' prose from disk and react to it. The only correct mode for 3+ turn rounds. |
+| `parallel` | **Deprecated.** Ignored — sequential is forced regardless of this value. (Was a 2-turn-only optimization that read summaries instead of prose.) |
+
+### TAVERN_VERBATIM — player character mode
+
+| Value | Behavior |
+|-------|----------|
+| `off` | Default. **Director mode.** All characters are AI-generated. User gives scene direction but never speaks as a character. Planner plans turns for every participant. |
+| `on`  | **Player mode.** One character is the player — identified by `player_id` in `characters.json`. The player types that character's dialogue in the UI. The frontend writes the player's line directly to `full_chat.json` / `recent_chat.json` before queuing `generate_reply`. The planner then plans turns for **all other characters only** — the player character is excluded from the speaking set because they already spoke. AI generates NPC reactions to the player's line. Standard SillyTavern model. |
+
+When `on`, `characters.json` MUST have a `player_id` field pointing to a valid participant. The UI shows a chat input for the player to type as their character instead of (or alongside) the direction input.
+
+### TAVERN_CHAT_MODE — dialogue structure
+
+| Value | Behavior |
+|-------|----------|
+| `normal` | Default. Standard prose mode — characters write full turns combining speech + actions in first person. Fixed-length rounds (each character speaks once per round). Uses `generate_reply_plan.md` and `generate_reply_turn.md`. |
+| `narrator` | Narrator mode — characters ONLY speak (quoted dialogue), a neutral narrator handles all physical actions/descriptions in third person. Variable-length rounds: NPCs converse freely until player input is needed. Uses `generate_reply_plan_narrator.md`, `expand_character_narrator.md` (speech), and `expand_round_narrator.md` (narration). Goals replace scenarios as scene anchors — reads `goals.json` instead of `scenario.json`. |
+
+**Mid-dialogue mode transitions:** Switching `TAVERN_CHAT_MODE` between rounds is supported. The `generate_reply` pipeline detects mismatches (e.g. dialogue started as `narrator` but env now says `normal`) and bridges automatically — see Phase 0b in the pipeline docs. Currently supported: `narrator → normal`. The reverse (`normal → narrator`) is not yet implemented.
+
+### TAVERN_NARRATOR_VOICE — narrator register (only when `TAVERN_CHAT_MODE=narrator`)
+
+| Value | Behavior |
+|-------|----------|
+| `neutral` | Default. Clean, transparent, minimal. Present tense. Reports what happens without style. |
+| `literary` | Slightly more descriptive, atmospheric. Past tense allowed. Adapts to scene mood. |
 
 ### VITE_VOICE_ENGINE — TTS routing
 
@@ -285,93 +307,284 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 |---|---|
 | `repack_character` | `application/character/repack.md` |
 | `optimize_scenario` | `application/dialogue/optimize_scenario.md` |
-| `generate_reply` | 3-phase pipeline (see step 4a) |
+| `generate_reply` | 4-phase pipeline (see step 4a) |
 | `condense_memory` | `application/dialogue/condense_memory.md` — triggered inline, not queued (see step 6) |
 
 4. If the task type is not in the table: output `ERROR: no agent defined for task type "<type>". Queue stopped.` and stop.
 
-4a. **For `generate_reply` tasks — 3-phase pipeline:**
+4a. **For `generate_reply` tasks — 4-phase pipeline (Plan → Validate → Turns → Merge/Append):**
 
-   **Phase 0 — Prep scripts:** Run all four before anything else:
+   **Phase 0 — Prep scripts:** Run all five before anything else, in this order:
    ```
    python application/scripts/build_writing_rules_cache.py
    python application/scripts/build_context_cache.py --dialogue-id {input.dialogue_id}
    python application/scripts/extract_prose_tail.py --dialogue-id {input.dialogue_id}
    python application/scripts/extract_last_turn.py --dialogue-id {input.dialogue_id}
+   python application/scripts/build_active_lorebook.py --dialogue-id {input.dialogue_id} [--user-prompt "{input.user_prompt}"]
    ```
-   All scripts are safe to run every time — they skip or overwrite cleanly. `extract_prose_tail.py` writes the last 2 turns (truncated to ~500 chars) into `prose_tail.json` for voice matching. `extract_last_turn.py` writes the single last turn (full text) into `last_turn.json` for expand agent reaction context in sequential mode.
+   All scripts are safe to run every time — they skip or overwrite cleanly. `extract_prose_tail.py` writes the last 2 turns (truncated to ~500 chars) into `prose_tail.json` for voice matching. `extract_last_turn.py` writes the single last turn from the prior round (full text) into `last_turn.json` so turn 0 of this round knows exactly what it is reacting to. `build_active_lorebook.py` must run **after** `extract_prose_tail.py` and `extract_last_turn.py` because it reads both to build the keyword haystack. Pass `--user-prompt` only when `input.user_prompt` is present in the task input. The script writes `active_lorebook.json` — a per-character dict of lore entries selected by four criteria (always / pattern / cross-character name / haystack keyword), replacing the old baked-into-`context_cache.json` lore slice.
 
-   **Phase 1 — Plan:** Spawn a general-purpose subagent using the model set by `TAVERN_PLANNER` (`sonnet` → `claude-sonnet-4-6`, `haiku` → `claude-haiku-4-5-20251001`):
+   **Phase 0b — Mode Transition (narrator → normal):**
+
+   Check whether a mode transition is needed:
+   - Read `infrastructure/dialogues/{dialogue_id}/characters.json`
+   - If `TAVERN_CHAT_MODE=normal` AND `characters.json` has `"narrator": true`:
+
+   **This dialogue was started in narrator mode but the env now says normal.** The normal-mode planner needs `scenario.json` as its scene anchor, but narrator-mode dialogues use `goals.json` instead. Generate a bridge scenario.
+
+   1. Read `goals.json` to determine goal status (active vs resolved).
+   2. Read `recent_chat.json` (last 4-6 turns) for current scene state.
+   3. Read each participant's `context_cache_{char_id}.json` for character data.
+
+   4. Spawn a **Sonnet** subagent to generate `infrastructure/dialogues/{dialogue_id}/scenario.json`:
+
+      ```
+      You are generating a scenario.json to bridge a narrator→normal mode transition mid-dialogue.
+
+      Dialogue ID: {dialogue_id}
+
+      Read the following files:
+      - goals.json: infrastructure/dialogues/{dialogue_id}/goals.json
+      - recent_chat.json: infrastructure/dialogues/{dialogue_id}/recent_chat.json (last 4-6 turns for current state)
+      - Character caches: infrastructure/dialogues/{dialogue_id}/context_cache_{char_id}.json (one per participant)
+
+      Goal status: {active | resolved}
+      {If resolved: goal_id, outcome, and detail from complete.json or goals.json resolved_as}
+
+      Write scenario.json with this schema:
+      {
+        "dialogue_id": "{dialogue_id}",
+        "generated_at": "<ISO 8601 now>",
+        "mode_transition": true,
+        "transitioned_from": "narrator",
+        "participants": {
+          "<char_id>": {
+            "name": "<display name>",
+            "scenario": "<1-3 paragraphs, first-person POV from this character — describes the scene AS IT IS RIGHT NOW based on recent_chat, not the original greeting>",
+            "openings": []
+          }
+        }
+      }
+
+      Rules:
+      - `openings` is empty — we are mid-dialogue, past the opening. This is valid.
+      - `scenario` must reflect the CURRENT scene state from recent_chat, not the original greeting or goals description.
+      - If goals are ACTIVE: scenario picks up the current beat. Each character's scenario describes where they are, what just happened, their emotional state, and the unresolved tension driving the scene forward. The goal's intent carries into the scenario naturally.
+      - If goals are COMPLETED: scenario reflects the resolution. Each character's scenario describes the aftermath — the new dynamic, the shifted relationship, what happens next. The resolved goal's outcome shapes the framing.
+      - Use each character's voice and POV for their scenario entry — write as if the character is narrating their own current situation.
+      - Physical details (location, clothing, posture, objects) must match what recent_chat established. Do not revert to card defaults if the prose contradicts them.
+
+      Working directory is the repository root.
+      ```
+
+   5. After the agent writes `scenario.json`, read it and present a brief summary to the user:
+      - Show each participant's scenario (first 2 sentences each)
+      - **Mismatch check:** If any scenario entry contradicts recent chat (wrong location, wrong emotional state, wrong physical details), flag it explicitly and ask the user to confirm or correct before proceeding.
+      - If it looks clean, note the transition and continue.
+
+   6. Update `characters.json`: set `"narrator"` to `false`.
+   7. Re-run `python application/scripts/build_context_cache.py --dialogue-id {dialogue_id}` to pick up the new scenario. This overwrites the prior context cache that had no scenario data.
+
+   If `TAVERN_CHAT_MODE=normal` and `characters.json` does NOT have `"narrator": true`, skip this phase entirely — no transition needed.
+
+   If `TAVERN_CHAT_MODE=narrator`, skip this phase entirely — no transition needed regardless of `characters.json` state.
+
+   **Phase 1 — Plan:** Spawn a general-purpose subagent using the model set by `TAVERN_PLANNER` (`sonnet` → `claude-sonnet-4-6`, `haiku` → `claude-haiku-4-5-20251001`). The planner instruction file depends on `TAVERN_CHAT_MODE`:
+   - `normal` → `application/dialogue/generate_reply_plan.md`
+   - `narrator` → `application/dialogue/generate_reply_plan_narrator.md`
+
    ```
-   Read your instructions from application/dialogue/generate_reply_plan.md and execute the task.
+   Read your instructions from <PLANNER_FILE> and execute the task.
 
    Task input (exact queue item):
    <TASK_JSON>
 
    Working directory is the repository root.
    ```
-   Wait for it to finish. It writes `infrastructure/dialogues/{dialogue_id}/reply_plan.json`.
+   Wait for it to finish. It writes `infrastructure/dialogues/{dialogue_id}/reply_plan.json` with a variable-length `turns[]` array — the planner picks who speaks this round (1 to N participants).
 
-   **Phase 2 — Expand + Respond:** Read `reply_plan.json` and `prose_tail.json`, then:
-
-   - If `reply_plan.json` has only one entry in `turns`: spawn only the expand agent (single-turn plan — no respond needed).
-   - If `turns[0].verbatim == true` (first-turn mode): write `reply_expand.json` directly from `turns[0].text` (no expand agent), then spawn only the respond agent.
-   - Otherwise: follow the strategy set by `TAVERN_TURNS`:
-
-   **`TAVERN_TURNS=parallel`:** Spawn expand + respond in the same tool call. **Both must be launched in the same tool call — do not spawn expand, wait for it to finish, then spawn respond.**
-
-   **`TAVERN_TURNS=sequential`:** Spawn expand first. Wait for it to finish and read `reply_expand.json`. Then spawn the respond agent with expand's output included.
-
-   Expand agent prompt (skip if verbatim — write the file directly instead):
-
-   **`TAVERN_TURNS=parallel`:**
+   **Phase 1b — Validate plan:** Spawn a general-purpose subagent (use `haiku` model):
    ```
-   Read your instructions from application/dialogue/generate_reply_expand.md and execute the task.
+   Read your instructions from application/dialogue/validate_plan.md and execute the task.
+
+   Dialogue ID: {input.dialogue_id}
 
    Task input (exact queue item):
    <TASK_JSON>
 
-   Plan output:
-   <CONTENTS_OF_REPLY_PLAN_JSON>
-
-   Prose tail (last 2 turns, truncated, for voice continuity):
-   <CONTENTS_OF_PROSE_TAIL_JSON>
-
    Working directory is the repository root.
    ```
+   Wait for it to finish. It writes `infrastructure/dialogues/{dialogue_id}/plan_validation.json`.
 
-   **`TAVERN_TURNS=sequential`:** Add the last turn so the expand agent knows what it is reacting to:
+   Read `plan_validation.json`. If `status` is `"pass"`, continue to Phase 2. Log any warnings to the user but do not stop.
+
+   If `status` is `"fail"`, route to the handler (Phase 1c).
+
+   **Phase 1c — Handle validation failure:**
+
+   *Current behavior (interim):* Hard-stop the pipeline. Do NOT proceed to Phase 2. Do NOT spawn the handler agent yet. Instead:
+
+   1. Report the failing issues to the user concisely (one line per issue: check ID, severity, speaker, detail).
+   2. Ask the user how this kind of failure should be handled (critical → restart plan, or fixable → specify the patch rule).
+   3. After the user answers, append the new rule into `application/dialogue/handle_plan_validation.md` under the **"Known issue handling rules"** section. Use this format for each rule:
+      ```
+      ### <check ID> — <one-line title>
+      **Classification:** critical | fixable
+      **Trigger:** <which detail patterns match this rule>
+      **Action:** <exact patch instruction, or "restart plan phase">
+      ```
+   4. Stop the pipeline. The user decides whether to re-run the queue manually.
+
+   *Eventual runtime (not yet enabled):* Spawn a Sonnet handler agent using `application/dialogue/handle_plan_validation.md`. The handler classifies each issue, then:
+   - **Critical issues** → handler deletes `reply_plan.json` + `plan_validation.json`, writes `handler_result.json` with `status: "restart"`. The orchestrator returns to Phase 1 (replan from scratch).
+   - **Fixable issues** → handler patches `reply_plan.json` in place, deletes the old `plan_validation.json`, writes `handler_result.json` with `status: "patched"`. The orchestrator returns to Phase 1b (re-run validator against the patched plan).
+
+   The handler is enabled once its "Known issue handling rules" section has enough accumulated coverage to handle failures autonomously.
+
+   **Phase 2 — Generate turns sequentially:**
+
+   **Note on `apply_verbatim.py`:** This script is parked and not invoked by the current pipeline. It was designed for a future scripted-insert feature. `TAVERN_VERBATIM` now controls player character mode (see env config above), which does not use this script — the player's line is written to the chat by the frontend before the pipeline runs, so no plan-side verbatim materialisation is needed. Skip this call entirely regardless of the flag value.
+
+   Then read `reply_plan.json` to learn the turn count `N = len(turns)`.
+
+   **Build turn context caches** (normal mode only — narrator mode uses its own routing):
    ```
-   Read your instructions from application/dialogue/generate_reply_expand.md and execute the task.
+   python application/scripts/build_turn_context.py --dialogue-id {input.dialogue_id}
+   ```
+   This writes `turn_context_{i}.json` per turn, collapsing plan, briefs, lorebook, writing rules, and prose tail into one file per agent. Eliminates token pyramiding from sequential tool reads.
+
+   **For each turn index `i` from 0 to N-1, in order:**
+
+   1. **Only when `TAVERN_VERBATIM=on`:** if `reply_turn_{i}.json` already exists on disk (because `apply_verbatim.py` materialized it), skip the agent spawn and proceed to step 3. When the flag is off, skip this check — proceed directly to step 2.
+   2. Spawn one `generate_reply_turn` subagent (see prompt below). Wait for it to finish — it writes `infrastructure/dialogues/{input.dialogue_id}/reply_turn_{i}.json`.
+   3. Run `python application/scripts/preview_turn.py --dialogue-id {input.dialogue_id}` to refresh the UI preview. This script idempotently rebuilds `preview_turn.json` from whatever `reply_turn_*.json` files exist on disk, so the UI can display each new turn the moment it lands.
+
+   After the loop completes, every entry in `reply_plan.turns[]` has a matching `reply_turn_{i}.json` on disk and the pipeline can proceed to merge.
+
+   **Sequential is mandatory.** `TAVERN_TURNS=parallel` is deprecated and ignored — turns must always be generated in order so each turn agent can read the actual prose of every prior turn this round.
+
+   **Prompt convention:** Agent prompts should reference files by **path**, not by inlined contents. The orchestrator does NOT pre-read prose files and substitute their contents into prompts — the agent reads its own inputs from disk. The only thing the orchestrator inlines into a prompt is `<TASK_JSON>` (the queue item itself, which is small and the agent's primary input). All other inputs are passed as file paths in a "Required reads" block, and the agent is responsible for reading them.
+
+   **Turn agent prompt** (one per turn `i` in order). The instruction file depends on `TAVERN_CHAT_MODE`:
+   - `normal` → `application/dialogue/generate_reply_turn.md` (prose expansion)
+   - `narrator` → **fresh-per-turn agents** (Haiku). Each turn spawns a fresh minimal-context Haiku agent. Character agents see ONLY their own character brief — structural voice isolation. No persistent agents, no SendMessage.
+
+     **Step 1 — Split the plan:**
+     ```
+     python application/scripts/split_plan_by_speaker.py --dialogue-id {input.dialogue_id} --narrator-voice {TAVERN_NARRATOR_VOICE}
+     ```
+     This writes `plan_slice_{speaker}.json` for each unique speaker + `plan_turn_order.json`.
+
+     **Step 2 — Execute turns with smart routing:**
+     Read `plan_turn_order.json` to get the turn sequence. The orchestrator classifies and routes each turn:
+
+     **Verbatim detection:** A character speech turn is **verbatim** when every string in its `beats` array is a complete quoted line — i.e., each beat starts with `\"` and ends with `\"` (escaped quotes in JSON). The orchestrator checks this before deciding whether to spawn an agent.
+
+     **Route A — Verbatim character speech (direct write, zero tokens):**
+     If the turn is a character speech turn AND all beats are verbatim quoted dialogue, the orchestrator writes `reply_turn_{i}.json` directly — no agent spawn:
+     ```json
+     {
+       "speaker": "<speaker_id>",
+       "type": "speech",
+       "text": "<beats joined with \\n\\n>"
+     }
+     ```
+     This is the common case for narrator-mode rounds where the planner writes the exact dialogue. Examples: `"Three."`, `"One down."`, `"Six remaining for me."` — the planner already did all the creative work. Write ALL verbatim turns upfront before spawning any agents.
+
+     **Route B — All narrator turns in a single agent:**
+     Narrator turns don't bounce off character speech — they describe physical events the planner already scripted. Spawn **one** Sonnet agent that writes ALL narrator turns for the round in a single call:
+     ```
+     Read your instructions from application/dialogue/expand_round_narrator.md.
+
+     Dialogue ID: {input.dialogue_id}
+     Narrator voice: {TAVERN_NARRATOR_VOICE}
+
+     Write the following narrator turns. For each, expand the beats into third-person narration prose and write to the specified file.
+
+     Turn index {i1}:
+     Beats: {reply_plan.turns[i1].beats}
+     Tone: {reply_plan.turns[i1].tone}
+     Output: infrastructure/dialogues/{input.dialogue_id}/reply_turn_{i1}.json
+
+     Turn index {i2}:
+     Beats: {reply_plan.turns[i2].beats}
+     Tone: {reply_plan.turns[i2].tone}
+     Output: infrastructure/dialogues/{input.dialogue_id}/reply_turn_{i2}.json
+
+     (... repeat for all narrator turns in the round)
+
+     Required reads:
+     - Writing rules: domain/dialogue/writing_rules_cache.md
+
+     Working directory is the repository root.
+     ```
+     One agent, one context load, all narrator turns written. Narrator beats are plan-scripted descriptions — they don't need to read character speech to know what to describe.
+
+     **Route C — Reactive character speech (agent expansion, sequential):**
+     If a character speech turn has non-verbatim beats (vague, reactive, or descriptive — e.g. "reacts to what she sees"), spawn a fresh Haiku agent with minimal context:
+     ```
+     Read your instructions from application/dialogue/expand_character_narrator.md and write turn index {i}.
+
+     You are: {speaker}
+     Dialogue ID: {input.dialogue_id}
+
+     Your character brief:
+     {character_briefs[speaker] from reply_plan.json — inline the brief, ~500 tokens}
+
+     Your plan slice for this turn:
+     {the single turn entry from reply_plan.turns[i] — inline beats, tone, voice_notes}
+
+     Required reads:
+     - Writing rules: domain/dialogue/writing_rules_cache.md
+     - Prose tail: infrastructure/dialogues/{input.dialogue_id}/prose_tail.json
+
+     Prior turns this round:
+     {for each j < i, include: "[{speaker_j}]: {text from reply_turn_j.json}"}
+
+     Working directory is the repository root.
+     ```
+
+     **Execution order:**
+     1. Write all Route A (verbatim) turns directly — instant, zero tokens
+     2. Spawn the single Route B (narrator) agent — writes all narrator turns at once
+     3. Spawn Route C (reactive) agents sequentially if any exist — these need prior turn context
+     4. After all turns are on disk, run `python application/scripts/preview_turn.py --dialogue-id {input.dialogue_id}` once
+
+     After all turns complete, proceed to merge.
+
+     **Cleanup:** After merge, run `python application/scripts/cleanup_round.py --dialogue-id {input.dialogue_id}` to remove remaining intermediates (`turn_context_*.json`, `plan_validation.json`, `last_turn.json`). Merge already deletes `reply_plan.json`, `reply_turn_*.json`, and `plan_slice_*.json`.
+
+   ```
+   Read your instructions from <TURN_AGENT_FILE> and execute the task.
+
+   Turn index: {i}
+   Speaker:    {reply_plan.turns[i].speaker}
 
    Task input (exact queue item):
    <TASK_JSON>
 
-   Plan output:
-   <CONTENTS_OF_REPLY_PLAN_JSON>
-
-   Prose tail (last 2 turns, truncated, for voice continuity):
-   <CONTENTS_OF_PROSE_TAIL_JSON>
-
-   Last turn (the message this character is directly reacting to, full text):
-   <CONTENTS_OF_LAST_TURN_JSON>
+   Required reads (read these files yourself):
+   - Turn context: infrastructure/dialogues/{input.dialogue_id}/turn_context_{i}.json  (plan turn, brief, lorebook, writing rules, prose tail — all in one file)
+   {if i == 0}
+   - Last turn:    infrastructure/dialogues/{input.dialogue_id}/last_turn.json   (last turn from the previous round, full text — what you are reacting to)
+   {else, for each j in 0..i-1}
+   - Prior turn:   infrastructure/dialogues/{input.dialogue_id}/reply_turn_{j}.json  (the turn at index {j} this round, full text)
+   {/if}
 
    Working directory is the repository root.
    ```
 
-   Respond agent prompt (`generate_reply_respond.md`, same structure as parallel expand). When `TAVERN_TURNS=sequential`, add:
-   ```
-   Expand output (the first character's turn, already written):
-   <CONTENTS_OF_REPLY_EXPAND_JSON>
-   ```
+   The orchestrator substitutes the appropriate "Required reads" lines based on `i`. Turn 0 reads `turn_context_{i}.json` + `last_turn.json`; turns 1..N-1 read `turn_context_{i}.json` + every prior `reply_turn_{j}.json`.
 
-   Wait for all spawned agents to finish.
-
-   **Phase 3 — Merge:** Run the merge script. If `CLAUDE.overwrite.md` defines additional Phase 3 agents, launch them in the same tool call as merge (parallel):
+   **Phase 3 — Merge:** Run the merge script first, on its own:
 
    ```
    python application/scripts/merge_reply.py --dialogue-id {input.dialogue_id} --output-path {output_path}
    ```
+
+   Merge is fast (sub-second) and writes the canonical post-round artifact `pending_turns.json` (the file at `{output_path}`) while deleting all `reply_turn_*.json` intermediates. Wait for it to finish.
+
+   **Phase 3b/3c/etc — additional Phase 3 agents:** If `CLAUDE.overwrite.md` defines additional Phase 3 agents (e.g. state actualization), launch them **after** merge has finished, in a single parallel tool call. They read their inputs from post-merge artifacts (`pending_turns.json`, `turn_state.json`, etc.) — not from the deleted intermediates. They are self-contained: the prompt tells them which file to read; they read it themselves. The orchestrator does not pre-read or inline prose contents.
 
    Wait for all Phase 3 steps to finish.
 
@@ -392,12 +605,50 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
    Working directory is the repository root.
    ```
 
+**529 overloaded — inline fallback (Sonnet only):** If spawning any subagent returns a 529 error:
+
+- **If the orchestrator is running on `claude-sonnet-4-6`:** confirm with the user:
+  > "API returned 529 (overloaded) spawning the subagent. I'm running on Sonnet and can execute this task directly inline — proceed?"
+  If the user confirms, execute the task inline by reading the agent instruction file yourself and performing all steps directly, without spawning a subagent.
+- **If the orchestrator is running on any other model** (Opus is overkill for task execution; Haiku lacks the capability): report the 529 to the user and stop. Do not attempt inline execution.
+
+If the user declines inline execution, stop and wait for them to retry.
+
 5. **After the task completes:**
    - For `generate_reply` tasks:
-     1. Check append output for `CONDENSE_NEEDED`.
-     2. If the script outputs `CONDENSE_NEEDED {dialogue_id}`, immediately spawn a `condense_memory` subagent using `application/dialogue/condense_memory.md` with the dialogue_id. Do not queue it — run it inline before moving on.
+     1. Run `python application/scripts/cleanup_round.py --dialogue-id {dialogue_id}` to remove remaining intermediates.
+     2. Check append output for `CONDENSE_NEEDED`.
+     3. If the script outputs `CONDENSE_NEEDED {dialogue_id}`, first run the prep script to build the cache:
+        ```
+        python application/scripts/build_condense_cache.py --dialogue-id {dialogue_id}
+        ```
+        Then spawn a `condense_memory` subagent using `application/dialogue/condense_memory.md` with the dialogue_id. Do not queue it — run it inline before moving on.
+     4. **Goal completion check:** Check append output for `GOAL_COMPLETED`. If present, `append_turns.py` has already written `complete.json` and updated `goals.json` — the orchestrator does not need to write these files. Report to the user: "Dialogue completed — goal '{goal_id}' resolved as '{outcome}'."
    - Set the completed task's `"status"` to `"done"` in the queue (already in memory — agents do not touch `queue.json`) and write it back.
    - If no eligible pending tasks remain, remove all `status: done` items and write the file back.
+
+## Creating a Character from Scratch
+
+When the user asks to **create a new character** (not repack an existing card), read the following files before doing anything else:
+
+1. `domain/character/schema.md` — field contracts and structure
+2. `domain/character/schema.overwrite.md` — if it exists
+3. `domain/character/template.json` — structural reference with inline guidance
+4. `application/character/create_from_scratch.md` — agent instructions and design guidelines
+5. `application/character/create_from_scratch.overwrite.md` — if it exists
+6. `domain/dialogue/writing_rules.md` — prose and formatting rules (dialogue seeds / sample lines must follow these)
+7. `domain/dialogue/writing_rules.overwrite.md` — if it exists
+
+All seven reads (skipping missing overwrites) must complete before prompting the user for design choices or writing any card data.
+
+## Repacking a Raw Card
+
+When the user asks to **repack a raw SillyTavern card** (outside the normal queue flow — e.g. a direct request to repack a specific card), read the same seven files listed above in "Creating a Character from Scratch", **plus**:
+
+8. `application/character/repack.md` — repack agent instructions
+9. `application/character/repack.overwrite.md` — if it exists
+
+All reads (skipping missing overwrites) must complete before inspecting the raw card or writing any repacked data.
 
 ## Key Principles
 

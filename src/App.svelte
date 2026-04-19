@@ -30,20 +30,19 @@
       const all = await res.json()
       const findChar = (id) => all.find(c => c.id === id) || null
 
-      // Uninitialized dialogue: leading/replying not yet determined → resume scene setup
-      if (!charsInfo?.leading) {
-        const charA = findChar(charsInfo?.charA?.id)
-        const charB = findChar(charsInfo?.charB?.id)
-        if (!charA || !charB) return
-        sceneSetupData = { charA, charB, resumeDialogueId: dialogueId }
+      const participants = charsInfo?.participants || {}
+      const orderedIds = Object.keys(participants)
+      const characters = orderedIds.map(id => findChar(id)).filter(Boolean)
+      if (characters.length < 2) return
+
+      // Uninitialized dialogue: leading_id not yet set → resume scene setup
+      if (!charsInfo?.leading_id) {
+        sceneSetupData = { characters, resumeDialogueId: dialogueId }
         activePanel = 'scene-setup'
         return
       }
 
-      const leading = findChar(charsInfo.leading.id)
-      const replying = findChar(charsInfo.replying.id)
-      if (!leading || !replying) return
-      dialogueData = { dialogueId, charA: leading, charB: replying, leadingChar: leading }
+      dialogueData = { dialogueId, characters, leadingId: charsInfo.leading_id, playerId: charsInfo.player_id || null }
       activePanel = 'dialogue'
     } catch {}
   }
@@ -105,8 +104,7 @@
       <CharactersPanel onStartScene={startScene} />
     {:else if activePanel === 'scene-setup'}
       <SceneSetupPanel
-        charA={sceneSetupData?.charA}
-        charB={sceneSetupData?.charB}
+        characters={sceneSetupData?.characters || []}
         resumeDialogueId={sceneSetupData?.resumeDialogueId || null}
         onBack={goToCharacters}
         onDialogueReady={openDialogue}
@@ -119,10 +117,10 @@
     {:else if activePanel === 'dialogue'}
       <DialoguePanel
         dialogueId={dialogueData?.dialogueId}
-        charA={dialogueData?.charA}
-        charB={dialogueData?.charB}
-        leadingChar={dialogueData?.leadingChar}
-onBack={() => activePanel = 'dialogues'}
+        characters={dialogueData?.characters || []}
+        leadingId={dialogueData?.leadingId}
+        playerId={dialogueData?.playerId || null}
+        onBack={() => activePanel = 'dialogues'}
       />
     {:else if activePanel === 'queue'}
       <QueueStatus standalone={true} />

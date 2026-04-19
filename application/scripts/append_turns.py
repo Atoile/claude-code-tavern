@@ -13,7 +13,7 @@ Turns file format (legacy):
 
 - Reads new turns from <turns-file>
 - Appends to infrastructure/dialogues/<id>/full_chat.json  (unbounded permanent record)
-- Appends to infrastructure/dialogues/<id>/recent_chat.json (trimmed to last 10)
+- Appends to infrastructure/dialogues/<id>/recent_chat.json (trimmed to last RECENT_CHAT_TRIM entries)
 - Writes turn_state.json if turn_state is present in output; deletes it if absent
 - Deletes <turns-file> on success
 """
@@ -23,7 +23,7 @@ import json
 import os
 import sys
 
-RECENT_CHAT_TRIM = 10
+RECENT_CHAT_TRIM = 30
 HISTORY_MAX_ROUNDS = 5
 
 
@@ -63,9 +63,13 @@ def main():
     if isinstance(payload, dict):
         new_turns = payload.get("turns", [])
         turn_state = payload.get("turn_state")
+        dialogue_complete = payload.get("dialogue_complete", False)
+        goal_resolution = payload.get("goal_resolution")
     else:
         new_turns = payload if isinstance(payload, list) else [payload]
         turn_state = None
+        dialogue_complete = False
+        goal_resolution = None
 
     # Snapshot turn_state onto the last turn so rollback can restore it exactly
     if new_turns:
@@ -96,21 +100,93 @@ def main():
 
     os.remove(turns_file)
 
-    # Seed reply_history.json if it doesn't exist yet (opening lines bypass merge_reply.py)
-    history_path = os.path.join(dialogue_dir, "reply_history.json")
-    if not os.path.exists(history_path):
-        seed_entry = {
-            "scene_context": "",
-            "turns": [{"speaker": t["speaker"], "summary": t["text"]} for t in new_turns],
-        }
-        with open(history_path, "w", encoding="utf-8") as f:
-            json.dump([seed_entry], f, ensure_ascii=False, indent=2)
+    # Clean up preview_turn.json if it exists (written by preview_expand.py for early UI display)
+    preview_path = os.path.join(dialogue_dir, "preview_turn.json")
+    if os.path.exists(preview_path):
+        os.remove(preview_path)
 
-    # Signal when turns have fallen off recent_chat and a full batch has accumulated
-    # Skips the premature first trigger at full_chat=RECENT_CHAT_TRIM (nothing outside context yet)
-    if new_full_chat_len > RECENT_CHAT_TRIM and new_full_chat_len // 10 > prev_full_chat_len // 10:
+    # Seed reply_history.json if it doesn't exist yet (defensive — normally merge_reply.py
+    # creates it in Phase 3 before this script runs). Flat per-turn format: one entry per
+    # turn, scene_context only on the first entry of a round.
+    history_path = os.path.join(dialogue_dir, "reply_history.json")
+    if not os.path.exists(history_path) and new_turns:
+        seed = []
+        for idx, t in enumerate(new_turns):
+            entry = {"speaker": t["speaker"], "summary": t["text"]}
+            if idx == 0:
+                entry["scene_context"] = ""
+            seed.append(entry)
+        with open(history_path, "w", encoding="utf-8") as f:
+            json.dump(seed, f, ensure_ascii=False, indent=2)
+
+    # Smart condense trigger — only condense when there's enough new content to justify it
+    condense = False
+    condense_reason = ""
+
+    if new_full_chat_len > RECENT_CHAT_TRIM:
+        # Check how many turns since last condense
+        memory_path = os.path.join(dialogue_dir, "memory.json")
+        last_condensed = 0
+        if os.path.exists(memory_path):
+            with open(memory_path, "r", encoding="utf-8") as f:
+                mem = json.load(f)
+                last_condensed = mem.get("condensed_through", 0)
+
+        turns_since_condense = new_full_chat_len - last_condensed
+
+        # Count word content in the new turns being appended
+        new_words = sum(len(t.get("text", "").split()) for t in new_turns)
+
+        # Minimum 10 turns between condensations — baseline for all triggers
+        MIN_TURNS_BETWEEN_CONDENSE = 10
+
+        # Context loss prevention: turns that fell off recent_chat but aren't in memory
+        # Only trigger when the gap is significant (10+ uncovered turns)
+        uncovered_gap = max(0, (new_full_chat_len - RECENT_CHAT_TRIM) - last_condensed)
+
+        if uncovered_gap >= MIN_TURNS_BETWEEN_CONDENSE:
+            condense = True
+            condense_reason = f"context gap ({uncovered_gap} uncovered turns — memory through {last_condensed}, recent_chat starts at {new_full_chat_len - RECENT_CHAT_TRIM})"
+        elif turns_since_condense >= 20:
+            condense = True
+            condense_reason = f"safety cap ({turns_since_condense} turns since last condense)"
+        elif new_words >= 500 and turns_since_condense >= MIN_TURNS_BETWEEN_CONDENSE:
+            condense = True
+            condense_reason = f"content threshold ({new_words} words, {turns_since_condense} turns)"
+
+    # Goal completion — write complete.json and update goals.json
+    if dialogue_complete and goal_resolution:
+        from datetime import datetime, timezone
+
+        complete_path = os.path.join(dialogue_dir, "complete.json")
+        complete_data = {
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "goal_id": goal_resolution.get("goal_id"),
+            "outcome": goal_resolution.get("outcome"),
+            "detail": goal_resolution.get("detail", ""),
+        }
+        write_json(complete_path, complete_data)
+
+        goals_path = os.path.join(dialogue_dir, "goals.json")
+        if os.path.exists(goals_path):
+            with open(goals_path, "r", encoding="utf-8") as f:
+                goals_data = json.load(f)
+            for goal in goals_data.get("goals", []):
+                if goal.get("id") == goal_resolution.get("goal_id"):
+                    goal["status"] = "resolved"
+                    goal["resolved_as"] = goal_resolution.get("outcome")
+                    break
+            write_json(goals_path, goals_data)
+
+        print(
+            f"GOAL_COMPLETED {args.dialogue_id} "
+            f"{goal_resolution.get('goal_id')} {goal_resolution.get('outcome')}"
+        )
+
+    if condense:
         print(f"CONDENSE_NEEDED {args.dialogue_id}")
-    else:
+
+    if not dialogue_complete or not goal_resolution:
         print(
             f"OK: {len(new_turns)} turn(s) appended to {args.dialogue_id} | "
             f"full_chat={new_full_chat_len} recent_chat={len(recent_chat)}"

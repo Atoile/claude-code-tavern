@@ -41,7 +41,7 @@ def main():
         json.dump(last, f, ensure_ascii=False, indent=2)
 
     if last:
-        print(f"OK: extracted last turn (char_id={last.get('char_id', '?')}) to last_turn.json")
+        print(f"OK: extracted last turn (speaker={last.get('speaker', '?')}) to last_turn.json")
     else:
         print("OK: recent_chat.json is empty, wrote null last_turn.json")
 

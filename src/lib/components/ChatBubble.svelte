@@ -1,15 +1,30 @@
 <script>
   import { marked } from 'marked'
 
-  let { message, isLeading = false, characterName = '', avatarSrc = null } = $props()
+  let { message, isLeading = false, characterName = '', avatarSrc = null, bubbleStyle = null } = $props()
   // isLeading = true means character is on the right side
+  // bubbleStyle = { background, color } per character; null falls back to theme defaults
 
   const html = $derived(marked.parse(message.content || message.text || message, { breaks: true }))
+
+  const inlineStyle = $derived.by(() => {
+    const parts = ['max-width: 70%', 'font-size: 18px']
+    if (bubbleStyle) {
+      parts.push(`background-color: ${bubbleStyle.background}`)
+      parts.push(`color: ${bubbleStyle.color}`)
+    }
+    if (message?._preview) parts.push('opacity: 0.6')
+    return parts.join('; ')
+  })
 </script>
 
 <style>
   :global(.bubble-content em) {
-    color: #ccc;
+    opacity: 0.7;
+  }
+  :global(.bubble-content code) {
+    background: rgba(0, 0, 0, 0.15);
+    color: inherit;
   }
 </style>
 
@@ -27,7 +42,7 @@
     {/if}
   </div>
   <div class="chat-header text-xs text-base-content/50 mb-1">{characterName}</div>
-  <div class="chat-bubble {isLeading ? 'chat-bubble-primary' : ''} prose prose-sm max-w-[70%] bubble-content" style="max-width: 70%; font-size: 18px; {isLeading ? '' : 'background-color: #9d174d; color: #fce7f3;'}">
+  <div class="chat-bubble {isLeading && !bubbleStyle ? 'chat-bubble-primary' : ''} prose prose-sm max-w-[70%] bubble-content" style={inlineStyle}>
     <!-- eslint-disable-next-line svelte/no-at-html-tags -->
     {@html html}
   </div>

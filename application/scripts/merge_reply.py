@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-merge_reply.py — Assembles the final pending_turns.json from the 3-phase pipeline.
+merge_reply.py — Assembles the final pending_turns.json from per-turn agent files.
 
 Usage:
     python application/scripts/merge_reply.py --dialogue-id <id> --output-path <path>
 
 Reads:
-    infrastructure/dialogues/<id>/reply_plan.json    (plan with turn_order + turn_state)
-    infrastructure/dialogues/<id>/reply_expand.json  (first character's prose)
-    infrastructure/dialogues/<id>/reply_respond.json (second character's prose, single-turn plans only have expand)
+    infrastructure/dialogues/<id>/reply_plan.json     (plan with turn_order, turns[], turn_state)
+    infrastructure/dialogues/<id>/reply_turn_<i>.json (one per entry in plan.turns[], i = 0..N-1)
 
 Writes:
     <output-path>  (final { "turns": [...], "turn_state": ... } for append_turns.py)
 
 Also appends the plan's summaries to reply_history.json (rolling buffer, last 5 rounds).
-Deletes all intermediate files on success.
+Verbatim turns are excluded from output (they were already materialized into the chat
+by apply_verbatim → expand step). All intermediate files are deleted on success.
 """
 
 import argparse
@@ -23,6 +23,7 @@ import os
 import sys
 
 HISTORY_MAX_ROUNDS = 5
+HISTORY_MAX_TURNS = 20  # rolling buffer size in flat per-turn format
 
 
 def load_json(path):
@@ -43,69 +44,99 @@ def main():
 
     dialogue_dir = os.path.join("infrastructure", "dialogues", args.dialogue_id)
     plan_path = os.path.join(dialogue_dir, "reply_plan.json")
-    expand_path = os.path.join(dialogue_dir, "reply_expand.json")
-    respond_path = os.path.join(dialogue_dir, "reply_respond.json")
 
-    for path in (plan_path, expand_path):
-        if not os.path.exists(path):
-            print(f"ERROR: required file not found: {path}", file=sys.stderr)
-            sys.exit(1)
+    if not os.path.exists(plan_path):
+        print(f"ERROR: required file not found: {plan_path}", file=sys.stderr)
+        sys.exit(1)
 
     plan = load_json(plan_path)
-    expand = load_json(expand_path)
-    single_turn = not os.path.exists(respond_path)
+    plan_turns = plan.get("turns", [])
+    if not plan_turns:
+        print("ERROR: reply_plan.json has no turns", file=sys.stderr)
+        sys.exit(1)
+
+    pending_tbc = plan.get("pending_tbc")  # captured before plan is deleted below
 
     # Verbatim turns (first-turn mode) are already in the chat — exclude from output
-    verbatim_speakers = {
-        t["speaker"] for t in plan.get("turns", []) if t.get("verbatim")
-    }
+    verbatim_speakers = {t["speaker"] for t in plan_turns if t.get("verbatim")}
 
-    if single_turn:
-        turns = [expand]
-    else:
-        respond = load_json(respond_path)
-        turn_order = plan.get("turn_order", [])
-        if expand.get("speaker") == turn_order[0]:
-            turns = [expand, respond]
-        else:
-            turns = [respond, expand]
-
-    turns = [t for t in turns if t.get("speaker") not in verbatim_speakers]
+    # Walk the plan in order, picking up the matching reply_turn_<i>.json for each
+    turn_files = []
+    turns = []
+    for i, plan_turn in enumerate(plan_turns):
+        turn_path = os.path.join(dialogue_dir, f"reply_turn_{i}.json")
+        if not os.path.exists(turn_path):
+            print(f"ERROR: missing turn file: {turn_path}", file=sys.stderr)
+            sys.exit(1)
+        turn_files.append(turn_path)
+        turn_data = load_json(turn_path)
+        if turn_data.get("speaker") in verbatim_speakers:
+            continue
+        turns.append(turn_data)
 
     output = {"turns": turns}
 
-    # Include turn_state from plan if present
     turn_state = plan.get("turn_state")
     if turn_state is not None:
         output["turn_state"] = turn_state
 
+    # Pass through goal completion data so append_turns.py can act on it
+    if plan.get("dialogue_complete"):
+        output["dialogue_complete"] = True
+        output["goal_resolution"] = plan.get("goal_resolution")
+
     write_json(args.output_path, output)
 
-    # Append plan summaries to reply_history.json (rolling buffer)
+    # Append plan summaries to reply_history.json — flat per-turn format.
+    # scene_context lives on the first turn of each round only; subsequent turns in
+    # the same round omit the field. This lets rollback pop exactly one history entry
+    # when the user removes the single most recent chat turn.
     history_path = os.path.join(dialogue_dir, "reply_history.json")
     history = load_json(history_path) if os.path.exists(history_path) else []
 
-    round_entry = {
-        "scene_context": plan.get("scene_context_summary", ""),
-        "turns": [
-            {"speaker": t["speaker"], "summary": t.get("summary") or t.get("text", "")}
-            for t in plan.get("turns", [])
-        ],
-    }
-    history.append(round_entry)
-    history = history[-HISTORY_MAX_ROUNDS:]
+    scene_context = plan.get("scene_context_summary", "")
+    for idx, t in enumerate(plan_turns):
+        entry = {
+            "speaker": t["speaker"],
+            "summary": t.get("summary") or t.get("text", ""),
+        }
+        if idx == 0:
+            entry["scene_context"] = scene_context
+        history.append(entry)
+
+    history = history[-HISTORY_MAX_TURNS:]
     write_json(history_path, history)
 
     # Clean up intermediate files
     os.remove(plan_path)
-    os.remove(expand_path)
-    if not single_turn:
-        os.remove(respond_path)
+    for tf in turn_files:
+        os.remove(tf)
     prose_tail_path = os.path.join(dialogue_dir, "prose_tail.json")
     if os.path.exists(prose_tail_path):
         os.remove(prose_tail_path)
 
-    print(f"OK: merged {len(turns)} turns to {args.output_path}")
+    # Clean up per-speaker plan slices (narrator per-character model)
+    for f in os.listdir(dialogue_dir):
+        if f.startswith("plan_slice_") and f.endswith(".json"):
+            os.remove(os.path.join(dialogue_dir, f))
+    plan_order_path = os.path.join(dialogue_dir, "plan_turn_order.json")
+    if os.path.exists(plan_order_path):
+        os.remove(plan_order_path)
+
+    # TBC state propagation:
+    # - This round consumed any prior tbc.json (the resumer's turn was planned
+    #   first and the other reactors held the freeze). Always delete the old
+    #   tbc.json unconditionally.
+    # - If the new plan ended on a fresh TBC (pending_tbc set), write a new
+    #   tbc.json for next round's planner.
+    tbc_path = os.path.join(dialogue_dir, "tbc.json")
+    if os.path.exists(tbc_path):
+        os.remove(tbc_path)
+    if pending_tbc:
+        write_json(tbc_path, pending_tbc)
+        print(f"OK: merged {len(turns)} turn(s) to {args.output_path} | new TBC pending: {pending_tbc.get('speaker')}")
+    else:
+        print(f"OK: merged {len(turns)} turn(s) to {args.output_path}")
 
 
 if __name__ == "__main__":

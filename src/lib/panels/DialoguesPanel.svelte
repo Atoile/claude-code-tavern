@@ -47,8 +47,10 @@
   {:else}
     <div class="flex flex-col gap-3">
       {#each dialogues as d (d.id)}
-        {@const leading = d.characters?.leading || d.characters?.charA}
-        {@const replying = d.characters?.replying || d.characters?.charB}
+        {@const participants = d.characters?.participants || {}}
+        {@const leadingId = d.characters?.leading_id}
+        {@const leading = leadingId ? participants[leadingId] : null}
+        {@const others = Object.values(participants).filter(p => p.id !== leadingId)}
         <div
           class="card bg-base-200 hover:bg-base-100 text-left transition-colors border-2 border-transparent hover:border-base-100 w-full cursor-pointer"
           role="button"
@@ -57,10 +59,19 @@
           onkeydown={(e) => e.key === 'Enter' && onOpenDialogue(d.id, d.characters)}
         >
           <div class="card-body p-4 gap-2">
-            <div class="flex items-center gap-2">
-              <span class="font-semibold text-sm">{leading?.name || '?'}</span>
-              <span class="text-base-content/30 text-xs">×</span>
-              <span class="font-semibold text-sm">{replying?.name || '?'}</span>
+            <div class="flex items-center gap-2 flex-wrap">
+              {#each others as o, i (o.id || i)}
+                {#if i > 0}<span class="text-base-content/30 text-xs">·</span>{/if}
+                <span class="font-semibold text-sm">{o?.name || '?'}</span>
+              {/each}
+              {#if leading && others.length > 0}
+                <span class="text-base-content/30 text-xs">×</span>
+              {/if}
+              {#if leading}
+                <span class="font-semibold text-sm">{leading?.name || '?'}</span>
+              {:else if others.length === 0}
+                <span class="font-semibold text-sm text-base-content/40">no participants</span>
+              {/if}
               <span class="ml-auto text-xs text-base-content/30">{d.message_count} msg</span>
             </div>
             {#if d.scenario_text}

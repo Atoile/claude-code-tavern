@@ -11,13 +11,19 @@ You are given a `dialogue_id`. Execute the condensing pass completely.
 
 ## 1. Read scene data
 
-Read the following files:
+Read a single file:
 
-- `infrastructure/dialogues/{dialogue_id}/full_chat.json` — take the **last 10 entries** as the condensing batch (the turns that triggered this pass)
-- `infrastructure/dialogues/{dialogue_id}/memory.json` — existing cumulative memory (may not exist; treat as empty if absent)
-- `infrastructure/dialogues/{dialogue_id}/recent_chat.json` — current context window (used for `short_memory`)
-- `infrastructure/dialogues/{dialogue_id}/scenario.json` — scene premise (for grounding)
-- Character `data.json` for each character — **identity** (`name`) and **personality** (`core_traits`, `emotional_baseline`) only
+- `infrastructure/dialogues/{dialogue_id}/condense_cache.json` — pre-built by the orchestrator's prep script. Contains everything you need:
+  - `batch` — the turns to condense (from `condensed_through` to end of `full_chat`)
+  - `batch_range` — `[start_index, end_index]`
+  - `full_chat_len` — total turns in full_chat
+  - `condensed_through` — where prior memory ends
+  - `existing_memory` — current `memory.json` contents (or null if first condense)
+  - `recent_chat` — current context window (for `short_memory`)
+  - `participants` — per-character `{ name, core_traits, emotional_baseline }`
+  - `scenario_summary` — leading character's scenario text
+
+Do NOT read `full_chat.json`, `memory.json`, `recent_chat.json`, `characters.json`, `scenario.json`, or character `data.json` files directly — the cache already contains everything extracted from them.
 
 ---
 

@@ -1,5 +1,5 @@
 <script>
-  let { character, isRaw = false, selected = false, onSelect } = $props()
+  let { character, isRaw = false, selected = false, onSelect, onColorChange = null } = $props()
 
   const name = $derived(isRaw
     ? character.filename.replace(/\.png$/i, '').replace(/_/g, ' ').split('-').slice(0, 3).join(' ')
@@ -12,6 +12,20 @@
   const avatarSrc = $derived(isRaw
     ? `/raw/${character.filename}`
     : character.avatarPath ? `/${character.avatarPath}` : null)
+
+  const charColor = $derived(!isRaw ? (character.data?.meta?.color || null) : null)
+
+  let colorInput = $state()
+
+  function handleColorClick(e) {
+    e.stopPropagation()
+    colorInput?.click()
+  }
+
+  function handleColorInput(e) {
+    e.stopPropagation()
+    onColorChange?.(character, e.target.value)
+  }
 </script>
 
 <div
@@ -51,6 +65,24 @@
         <div class="badge badge-success badge-xs mt-1">repacked</div>
       {/if}
     </div>
+
+    <!-- Color picker (repacked only) -->
+    {#if !isRaw && onColorChange}
+      <div class="shrink-0 relative" role="button" tabindex="-1" onclick={handleColorClick} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && handleColorClick(e)}>
+        <div
+          class="w-6 h-6 rounded-full border-2 border-base-content/20 hover:border-base-content/50 cursor-pointer transition-colors"
+          style="background-color: {charColor || '#555555'}"
+        ></div>
+        <input
+          bind:this={colorInput}
+          type="color"
+          value={charColor || '#555555'}
+          class="sr-only"
+          oninput={handleColorInput}
+          onclick={(e) => e.stopPropagation()}
+        />
+      </div>
+    {/if}
 
     <!-- Selection indicator -->
     {#if selected}

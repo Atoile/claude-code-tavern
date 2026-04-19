@@ -8,6 +8,12 @@ All fields must be populated. Use `null` only when a value genuinely cannot be i
 
 **Template:** `domain/character/template.json` provides a complete structural reference with inline guidance for each field's expected depth and tone. Use it as the starting point for both new cards and repacks.
 
+**Creating from scratch:** When designing a new character (not repacking from a SillyTavern card), also read:
+- `application/character/create_from_scratch.md` (and `create_from_scratch.overwrite.md` if it exists) — agent instructions and design guidelines for original characters
+- `domain/dialogue/writing_rules.md` (and `writing_rules.overwrite.md` if it exists) — formatting and prose rules that the character's dialogue seeds and sample lines must follow
+
+Poll the user on each undecided design axis one at a time, presenting several concrete choices per question, before writing the card.
+
 ---
 
 ## Top-level sections
@@ -37,6 +43,7 @@ filter_tags
 | `id` | string | Slug: lowercase, hyphens |
 | `source_card` | string | Original PNG filename |
 | `repacked_at` | string | ISO 8601 timestamp |
+| `color` | string \| null | Hex color for chat bubble background (e.g. `"#9d174d"`). Set by user in UI. Text color auto-computed from luminance. |
 
 ---
 
@@ -151,9 +158,33 @@ Array of lore entries:
 {
   "keys": ["trigger keywords"],
   "content": "string — lore entry text",
-  "priority": 1
+  "priority": 1,
+  "always": false
 }
 ```
+
+| Field | Type | Notes |
+|---|---|---|
+| `keys` | string[] | Trigger keywords that activate this entry |
+| `content` | string | Lore entry text |
+| `priority` | number | Injection priority (higher = more important) |
+| `always` | boolean | Optional. When `true`, this entry is always included in scenario context regardless of keyword matches. Default `false`. |
+
+**`always: true` is reserved for entries that are load-bearing in every possible scene** — equally relevant at a tea ceremony and in bed, equally relevant in a tavern brawl and in a quiet conversation. The test is literal: if you can imagine a plausible scene where the entry would *not* materially shape how the character speaks, moves, or is perceived, it must not be `always: true` — it belongs on keyword triggers instead.
+
+Entries that typically qualify:
+- Permanent anatomy or physiology the character carries into every scene (non-human traits, prosthetics, permanent injuries that affect movement)
+- A constantly-worn signature item that the character never removes (a Device, a locked collar, a ring)
+- A primary relationship that shapes the character's baseline orientation regardless of who they're talking to (a lifelong partner, a bonded familiar)
+
+Entries that do **not** qualify and should be keyword-triggered instead:
+- Reputation, titles, nicknames — only relevant when the topic comes up
+- Signature abilities or spells — only relevant in combat or when discussed
+- Organizational affiliation — only relevant when the org, its personnel, or its missions come up
+- Backstory events — only relevant when referenced
+- Specific skills, hobbies, or preferences — only relevant when the topic surfaces
+
+When in doubt, default to `false` and give the entry keys. `always: true` is expensive context and should earn its place.
 
 If the source lorebook has 20+ entries, keep only those directly relevant to this character's personality and relationships.
 

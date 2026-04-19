@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """
-build_context_cache.py — Builds infrastructure/dialogues/{id}/context_cache.json.
+build_context_cache.py — Builds per-character context cache files.
 
-Extracts sliced character data and the leading character's scenario text into a
-single file so generate_reply agents don't need to read scenario.json or full
-data.json files.
+Writes:
+  context_cache.json           — meta: scenario text, leading_id, participant_ids[]
+  context_cache_{char_id}.json — per-character: sliced identity/appearance/personality/speech/behavior
 
-Skips if context_cache.json already exists (characters don't change mid-dialogue).
+The planner reads the meta file + each per-character file it needs. The
+validator does NOT read these (uses character_briefs from the plan instead).
+Turn agents also don't read these.
+
+Lorebook selection is handled by build_active_lorebook.py (runs every turn).
+
+Skips if context_cache.json already exists AND every source file is older than
+the cache. Rebuilds automatically if any source has been edited since.
 
 Usage:
     python application/scripts/build_context_cache.py --dialogue-id <id>
@@ -17,15 +24,21 @@ import json
 import os
 import sys
 
-# Lorebook key patterns always included (SFW baseline)
-BASELINE_LOREBOOK_PATTERNS = ["catchphrase"]
-
-# Overwrite file for additional lorebook key patterns and character fields
+# Overwrite file for additional character fields. Lorebook key patterns in this
+# file are consumed by build_active_lorebook.py, not by this script.
 OVERWRITE_PATH = "application/scripts/build_context_cache.overwrite.json"
+
+# Field truncation limits — applied to every extracted value to keep the cache
+# small enough that subagent read-overhead stays low. Strings over the cap are
+# truncated with an ellipsis; lists over the cap are sliced; list string items
+# are also individually truncated.
+FIELD_STR_MAX = 500
+FIELD_LIST_MAX = 5
+FIELD_LIST_ITEM_MAX = 250
 
 # Character data fields to extract (SFW baseline)
 CHARACTER_FIELDS = {
-    "identity": ["full_name", "gender"],
+    "identity": ["full_name", "gender", "occupation", "background_summary"],
     "appearance": ["summary", "height", "build", "typical_clothing"],
     "personality": ["core_traits", "emotional_baseline", "quirks"],
     "speech": ["voice_description", "vocabulary_level", "speech_patterns", "sample_lines"],
@@ -44,13 +57,9 @@ def write_json(path, data):
 
 
 def load_overwrite():
-    """Load overwrite config, merging additional lorebook patterns and character fields."""
     if not os.path.exists(OVERWRITE_PATH):
         return
     overwrite = load_json(OVERWRITE_PATH)
-    # Merge additional lorebook key patterns
-    BASELINE_LOREBOOK_PATTERNS.extend(overwrite.get("additional_lorebook_key_patterns", []))
-    # Merge additional character fields per section
     for section, fields in overwrite.get("additional_character_fields", {}).items():
         if section in CHARACTER_FIELDS:
             CHARACTER_FIELDS[section].extend(f for f in fields if f not in CHARACTER_FIELDS[section])
@@ -58,73 +67,37 @@ def load_overwrite():
             CHARACTER_FIELDS[section] = list(fields)
 
 
-def load_lorebook_patterns():
-    patterns = list(BASELINE_LOREBOOK_PATTERNS)
-    return [p.lower() for p in patterns]
+def _truncate_str(s, cap):
+    if not isinstance(s, str):
+        return s
+    if len(s) <= cap:
+        return s
+    return s[:cap].rstrip() + "…"
 
 
-def other_char_match_strings(char_data):
-    """Return lowercased strings to match against lorebook keys for the other character."""
-    identity = char_data.get("identity", {})
-    strings = []
-    name = identity.get("name") or identity.get("full_name")
-    if name:
-        strings.append(name.lower())
-    char_id = char_data.get("meta", {}).get("id")
-    if char_id:
-        strings.append(char_id.lower())
-    for alias in identity.get("aliases", []):
-        strings.append(alias.lower())
-    return strings
+def truncate_value(v):
+    """Recursively truncate strings and lists to keep the cache compact."""
+    if isinstance(v, str):
+        return _truncate_str(v, FIELD_STR_MAX)
+    if isinstance(v, list):
+        truncated = []
+        for item in v[:FIELD_LIST_MAX]:
+            if isinstance(item, str):
+                truncated.append(_truncate_str(item, FIELD_LIST_ITEM_MAX))
+            else:
+                truncated.append(truncate_value(item))
+        return truncated
+    if isinstance(v, dict):
+        return {k: truncate_value(val) for k, val in v.items()}
+    return v
 
 
-def lorebook_key_set(lorebook):
-    """Return a flat set of lowercased keys across all lorebook entries."""
-    keys = set()
-    for entry in lorebook:
-        for k in entry.get("keys", []):
-            keys.add(k.lower())
-    return keys
-
-
-def select_lorebook(lorebook, other_char_strings, patterns, other_char_keys):
-    """Return lorebook entries relevant to this scene."""
-    selected = []
-    for entry in lorebook:
-        entry_keys_lower = [k.lower() for k in entry.get("keys", [])]
-        # Match against configured key patterns
-        if any(pat in key for pat in patterns for key in entry_keys_lower):
-            selected.append(entry)
-            continue
-        # Match against other character's name/aliases/id
-        if any(other in key for other in other_char_strings for key in entry_keys_lower):
-            selected.append(entry)
-            continue
-        # Match against shared topics — keys present in both lorebooks
-        if any(key in other_char_keys for key in entry_keys_lower):
-            selected.append(entry)
-    return [{"keys": e["keys"], "content": e["content"]} for e in selected]
-
-
-def extract_character(data, other_char_strings, patterns, other_char_keys):
+def extract_character(data):
     result = {}
     for section, fields in CHARACTER_FIELDS.items():
         section_data = data.get(section, {})
-        result[section] = {f: section_data.get(f) for f in fields}
-    result["lorebook"] = select_lorebook(
-        data.get("lorebook", []), other_char_strings, patterns, other_char_keys
-    )
+        result[section] = {f: truncate_value(section_data.get(f)) for f in fields}
     return result
-
-
-def resolve_leading_scenario_key(scenario, leading_id):
-    """Return 'char_a' or 'char_b' based on which character matches leading_id."""
-    chars = scenario.get("characters", {})
-    if chars.get("char_a", {}).get("id") == leading_id:
-        return "char_a"
-    if chars.get("char_b", {}).get("id") == leading_id:
-        return "char_b"
-    return None
 
 
 def main():
@@ -136,78 +109,101 @@ def main():
 
     dialogue_dir = os.path.join("infrastructure", "dialogues", args.dialogue_id)
     cache_path = os.path.join(dialogue_dir, "context_cache.json")
-
-    if os.path.exists(cache_path):
-        print("OK: context_cache.json already exists, skipping")
-        return
-
     characters_path = os.path.join(dialogue_dir, "characters.json")
     scenario_path = os.path.join(dialogue_dir, "scenario.json")
+    goals_path = os.path.join(dialogue_dir, "goals.json")
 
-    for path in (characters_path, scenario_path):
-        if not os.path.exists(path):
-            print(f"ERROR: required file not found: {path}", file=sys.stderr)
-            sys.exit(1)
-
-    characters = load_json(characters_path)
-    scenario = load_json(scenario_path)
-
-    leading_id = characters.get("leading", {}).get("id")
-    if not leading_id:
-        print("ERROR: characters.json has no leading.id", file=sys.stderr)
+    if not os.path.exists(characters_path):
+        print(f"ERROR: required file not found: {characters_path}", file=sys.stderr)
         sys.exit(1)
 
-    char_a_info = characters.get("charA", {})
-    char_b_info = characters.get("charB", {})
+    # Either scenario.json (normal mode) or goals.json (narrator mode) must exist
+    has_scenario = os.path.exists(scenario_path)
+    has_goals = os.path.exists(goals_path)
+    if not has_scenario and not has_goals:
+        print(f"ERROR: neither scenario.json nor goals.json found in {dialogue_dir}", file=sys.stderr)
+        sys.exit(1)
 
-    for info in (char_a_info, char_b_info):
+    characters = load_json(characters_path)
+    scenario = load_json(scenario_path) if has_scenario else None
+    goals = load_json(goals_path) if has_goals else None
+
+    participants = characters.get("participants", {})
+    if not participants:
+        print("ERROR: characters.json has no participants", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve source data file paths so we can mtime-check them against the cache
+    source_files = [characters_path]
+    if has_scenario:
+        source_files.append(scenario_path)
+    if has_goals:
+        source_files.append(goals_path)
+    for info in participants.values():
+        if info.get("data_path") and os.path.exists(info["data_path"]):
+            source_files.append(info["data_path"])
+
+    if os.path.exists(cache_path):
+        cache_mtime = os.path.getmtime(cache_path)
+        stale_sources = [s for s in source_files if os.path.getmtime(s) > cache_mtime]
+        if not stale_sources:
+            print("OK: context_cache.json is up to date, skipping")
+            return
+        print(f"REBUILDING: {len(stale_sources)} source file(s) newer than cache: {', '.join(os.path.basename(s) for s in stale_sources)}")
+
+    leading_id = characters.get("leading_id")
+    if not leading_id:
+        print("ERROR: characters.json has no leading_id", file=sys.stderr)
+        sys.exit(1)
+    if leading_id not in participants:
+        print(f"ERROR: leading_id '{leading_id}' not in participants", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate every participant has a data_path on disk
+    for cid, info in participants.items():
         if not info.get("data_path"):
-            print(f"ERROR: missing data_path for character: {info.get('id')}", file=sys.stderr)
+            print(f"ERROR: missing data_path for participant: {cid}", file=sys.stderr)
             sys.exit(1)
         if not os.path.exists(info["data_path"]):
             print(f"ERROR: data.json not found: {info['data_path']}", file=sys.stderr)
             sys.exit(1)
 
-    char_a_data = load_json(char_a_info["data_path"])
-    char_b_data = load_json(char_b_info["data_path"])
+    # Load every participant's data.json
+    char_data = {cid: load_json(info["data_path"]) for cid, info in participants.items()}
 
-    patterns = load_lorebook_patterns()
+    # Pull scene text from scenario.json (normal mode) or goals.json (narrator mode)
+    if scenario:
+        scenario_participants = scenario.get("participants", {})
+        if leading_id not in scenario_participants:
+            print(f"ERROR: leading_id '{leading_id}' not in scenario.json participants", file=sys.stderr)
+            sys.exit(1)
+        scenario_text = scenario_participants[leading_id].get("scenario", "")
+    elif goals:
+        scenario_text = goals.get("scene", "")
+    else:
+        scenario_text = ""
 
-    # Leading scenario text
-    scenario_key = resolve_leading_scenario_key(scenario, leading_id)
-    if not scenario_key:
-        print(f"ERROR: leading_id '{leading_id}' not found in scenario.json characters", file=sys.stderr)
-        sys.exit(1)
-    scenario_text = scenario[scenario_key]["scenario"]
-
-    # Pre-compute lorebook key sets for shared-topic matching
-    char_a_keys = lorebook_key_set(char_a_data.get("lorebook", []))
-    char_b_keys = lorebook_key_set(char_b_data.get("lorebook", []))
-
-    # Extract character slices (each sees the other's data for lorebook matching)
-    char_a_slice = extract_character(
-        char_a_data,
-        other_char_strings=other_char_match_strings(char_b_data),
-        patterns=patterns,
-        other_char_keys=char_b_keys,
-    )
-    char_b_slice = extract_character(
-        char_b_data,
-        other_char_strings=other_char_match_strings(char_a_data),
-        patterns=patterns,
-        other_char_keys=char_a_keys,
-    )
-
-    cache = {
+    # Write meta file
+    meta = {
         "scenario": scenario_text,
-        "characters": {
-            char_a_info["id"]: char_a_slice,
-            char_b_info["id"]: char_b_slice,
-        },
+        "leading_id": leading_id,
+        "participant_ids": sorted(char_data.keys()),
     }
+    write_json(cache_path, meta)
 
-    write_json(cache_path, cache)
-    print(f"BUILT: context_cache.json for {args.dialogue_id}")
+    # Write per-character files
+    for cid, data in char_data.items():
+        char_cache_path = os.path.join(dialogue_dir, f"context_cache_{cid}.json")
+        write_json(char_cache_path, extract_character(data))
+
+    # Clean up any stale per-character files from participants no longer in the scene
+    for f in os.listdir(dialogue_dir):
+        if f.startswith("context_cache_") and f.endswith(".json"):
+            cid_from_file = f[len("context_cache_"):-len(".json")]
+            if cid_from_file not in char_data:
+                os.remove(os.path.join(dialogue_dir, f))
+
+    print(f"BUILT: context_cache for {args.dialogue_id} (meta + {len(char_data)} character file(s))")
 
 
 if __name__ == "__main__":

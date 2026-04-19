@@ -43,6 +43,8 @@ When the user asks to make changes to an already-repacked `data.json` (rather th
 
 > **Note:** Do not make any calls to the Anthropic API. You are already running inside Claude Code — just read files, run scripts, and write output directly.
 
+> **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not.
+
 > **Overwrite check:** Before proceeding, check whether `application/character/repack.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
 
 1. **Read everything** in the source data before starting. Understand the character holistically.

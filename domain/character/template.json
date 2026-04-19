@@ -3,7 +3,8 @@
     "name": "Display Name",
     "id": "lowercase-hyphenated-slug",
     "source_card": "original-filename.png or null if created from scratch",
-    "repacked_at": "ISO 8601 timestamp with actual time, e.g. '2026-03-22T12:44:03Z' — not midnight"
+    "repacked_at": "ISO 8601 timestamp with actual time, e.g. '2026-03-22T12:44:03Z' — not midnight",
+    "color": null
   },
   "identity": {
     "full_name": "Full name including original script if applicable, e.g. 'Mary Sue (メアリー・スー)'",
@@ -125,7 +126,8 @@
     {
       "keys": ["trigger", "keywords", "that activate this entry"],
       "content": "Lore entry text — background, relationships, world details that the dialogue agent needs when these keywords come up in context. Dense and specific.",
-      "priority": 10
+      "priority": 10,
+      "always": false
     }
   ],
   "scenario_defaults": {

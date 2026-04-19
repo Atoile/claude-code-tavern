@@ -35,7 +35,7 @@ function tavernApiPlugin() {
         const pathname = url.pathname
 
         res.setHeader('Access-Control-Allow-Origin', '*')
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
         if (req.method === 'OPTIONS') {
@@ -97,6 +97,32 @@ function tavernApiPlugin() {
           return
         }
 
+        // PATCH /api/characters/:id/color
+        const colorPatchMatch = pathname.match(/^\/characters\/([^/]+)\/color$/)
+        if (req.method === 'PATCH' && colorPatchMatch) {
+          try {
+            const [, id] = colorPatchMatch
+            const body = await collectBody(req)
+            const { color } = JSON.parse(body)
+            const dataPath = path.join(ROOT, 'infrastructure', 'characters', id, 'data.json')
+            const data = readJson(dataPath)
+            if (!data) {
+              res.writeHead(404)
+              res.end(JSON.stringify({ error: 'Character not found' }))
+              return
+            }
+            data.meta = data.meta || {}
+            data.meta.color = color || null
+            fs.writeFileSync(dataPath, JSON.stringify(data, null, 2), 'utf8')
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ ok: true }))
+          } catch (err) {
+            res.writeHead(500)
+            res.end(JSON.stringify({ error: err.message }))
+          }
+          return
+        }
+
         // GET /api/raw
         if (req.method === 'GET' && pathname === '/raw') {
           const rawDir = path.join(ROOT, 'infrastructure', 'raw')
@@ -143,10 +169,22 @@ function tavernApiPlugin() {
                 const fullChatPath = path.join(dialoguesDir, entry, 'full_chat.json')
                 const statPath = fs.existsSync(fullChatPath) ? fullChatPath : charsPath
                 const mtime = fs.statSync(statPath).mtimeMs
+
+                // Extract a representative scenario text from the new participants shape:
+                // prefer the leading character's adapted scenario, else the first one.
+                let scenario_text = null
+                const scenarioParticipants = scenario?.participants || null
+                if (scenarioParticipants) {
+                  const leadingId = chars?.leading_id
+                  scenario_text = scenarioParticipants[leadingId]?.scenario
+                    || Object.values(scenarioParticipants)[0]?.scenario
+                    || null
+                }
+
                 result.push({
                   id: entry,
                   characters: chars,
-                  scenario_text: scenario?.scenario_text || null,
+                  scenario_text,
                   message_count: Array.isArray(chat) ? chat.length : 0,
                   last_updated: mtime
                 })
@@ -253,6 +291,7 @@ function tavernApiPlugin() {
 }
 
 export default defineConfig({
+  envPrefix: ['VITE_', 'TAVERN_'],
   plugins: [
     tailwindcss(),
     svelte(),

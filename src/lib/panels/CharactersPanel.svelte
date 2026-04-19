@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import { repackedCharacters, rawCharacters, selectedCharacters, loadCharacters, toggleCharacterSelection, clearSelection } from '../stores/characters.js'
+  import { repackedCharacters, rawCharacters, selectedCharacters, loadCharacters, toggleCharacterSelection, clearSelection, updateCharacterColor, MIN_PARTICIPANTS, MAX_PARTICIPANTS } from '../stores/characters.js'
   import CharacterCard from '../components/CharacterCard.svelte'
 
   let { onStartScene } = $props()
@@ -20,9 +20,16 @@
     return $selectedCharacters.some(s => s._key === key)
   }
 
+  function displayName(c) {
+    return c?.data?.meta?.name || c?.name || c?.filename?.replace(/\.png$/i, '') || c?.id || '?'
+  }
+
+  function handleColorChange(char, color) {
+    updateCharacterColor(char.id, color)
+  }
+
   function handleStartScene() {
-    const [charA, charB] = $selectedCharacters
-    onStartScene({ charA, charB })
+    onStartScene({ characters: [...$selectedCharacters] })
   }
 
   function toggleTag(tag) {
@@ -96,21 +103,22 @@
   <!-- Selection status -->
   <div class="mb-4">
     {#if $selectedCharacters.length === 0}
-      <div class="text-sm text-base-content/40">Select two characters to start a scene.</div>
-    {:else if $selectedCharacters.length === 1}
+      <div class="text-sm text-base-content/40">Select {MIN_PARTICIPANTS}–{MAX_PARTICIPANTS} characters to start a scene.</div>
+    {:else if $selectedCharacters.length < MIN_PARTICIPANTS}
       <div class="flex items-center gap-3 flex-wrap">
         <div class="text-sm text-base-content/60">
-          <span class="font-medium text-base-content">{$selectedCharacters[0].data?.meta?.name || $selectedCharacters[0].name || $selectedCharacters[0].filename}</span>
-          selected — pick one more.
+          {#each $selectedCharacters as c, i (c._key)}<span class="font-medium text-base-content">{displayName(c)}</span>{#if i < $selectedCharacters.length - 1} &amp; {/if}{/each}
+          selected — pick {MIN_PARTICIPANTS - $selectedCharacters.length} more.
         </div>
         <button class="btn btn-ghost btn-sm text-base-content/40" onclick={clearSelection}>Clear</button>
       </div>
     {:else}
       <div class="flex items-center gap-3 flex-wrap">
         <div class="text-sm text-base-content/60">
-          <span class="font-medium text-base-content">{$selectedCharacters[0].data?.meta?.name || $selectedCharacters[0].name || $selectedCharacters[0].filename}</span>
-          &amp;
-          <span class="font-medium text-base-content">{$selectedCharacters[1].data?.meta?.name || $selectedCharacters[1].name || $selectedCharacters[1].filename}</span>
+          {#each $selectedCharacters as c, i (c._key)}<span class="font-medium text-base-content">{displayName(c)}</span>{#if i < $selectedCharacters.length - 1} &amp; {/if}{/each}
+          {#if $selectedCharacters.length < MAX_PARTICIPANTS}
+            <span class="text-base-content/30">— add {MAX_PARTICIPANTS - $selectedCharacters.length} more or start now</span>
+          {/if}
         </div>
         <button class="btn btn-primary btn-sm" onclick={handleStartScene}>Start Scene →</button>
         <button class="btn btn-ghost btn-sm text-base-content/40" onclick={clearSelection}>Clear</button>
@@ -124,7 +132,7 @@
       <div class="text-xs font-semibold text-success uppercase tracking-wider mb-2">Repacked</div>
       <div class="flex flex-col gap-2">
         {#each filteredRepacked as char (char.id)}
-          <CharacterCard character={char} isRaw={false} selected={isSelected(char, false)} onSelect={() => handleSelect(char, false)} />
+          <CharacterCard character={char} isRaw={false} selected={isSelected(char, false)} onSelect={() => handleSelect(char, false)} onColorChange={handleColorChange} />
         {/each}
       </div>
     </div>

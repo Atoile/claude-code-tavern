@@ -14,3 +14,4 @@ reply_history.json
 build_context_cache.overwrite.json
 .env.local
 .env.*.local
+__pycache__
