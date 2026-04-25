@@ -60,6 +60,8 @@ Let `participants = sorted(context_cache.characters.keys())` — the full partic
 
 For each participant, evaluate three tiers in order. A participant's highest matching tier determines their inclusion.
 
+**Critical: `user_prompt` framing is PLACEMENT, not EXCLUSION.** A prompt like `"Rosa's turn, <weight>: <direction>"`, `"Alice does X"`, or `"describe Bob's reaction"` names one character as the round's center of gravity — that character becomes the `round_protagonist`, Tier 1 auto-includes, and goes **first** in `turn_order` (see 3b). It does **NOT** exclude other participants from the round. Every other participant still gets evaluated against Tier 1 / Tier 2 / Tier 3 normally — they are included when their own qualifications are met (physically engaged, directly addressed, reacted-to, primary reactor, silence fatigue, etc.). A single-character round is correct only when the user_prompt explicitly excludes others (e.g. `"Rosa-only monologue"`, `"other characters stay silent"`) OR when genuinely no other participant has a reactive beat available. If the protagonist's turn ends on a physical event landing on another character's body (touch, contact, strike, gesture toward), that character is Tier 1 "physically engaged" and must speak — the prompt naming the protagonist does not override that.
+
 **Player character exclusion (when `player_id` is set in `characters.json`):**
 Before evaluating tiers, check `characters.json` for `player_id`. If set and the player character is the most recent speaker in `recent_chat.json` (their line was just typed by the user), **exclude them from the speaking set entirely** — do not plan a turn for them, regardless of tier. Their line is already in the chat. Plan reactions from the other participants only. If the player character is NOT the most recent speaker (rare — e.g. a "Skip" round where the player chose not to speak), they may still be excluded or included per normal tier rules at your discretion.
 
@@ -100,7 +102,7 @@ Once you've picked the speaking subset:
 
 **TBC resumer override:** if `tbc.json` exists, the TBC speaker is **always first** in `turn_order` (see 3c). They resume their action from the exact frozen state, and every other speaker reacts to the resumed action.
 
-**User prompt override:** if `user_prompt` is primarily about one character — whether it directs their action ("Alice does X"), describes something happening to or from their body ("describe Bob's X"), or frames an event from their perspective — that character goes **first** in `turn_order` regardless of default placement. (If both a TBC resumer AND a user prompt override apply to different characters, the TBC resumer wins — the frozen action must resolve before new direction can be applied.)
+**User prompt override:** if `user_prompt` is primarily about one character — whether it directs their action ("Alice does X"), describes something happening to or from their body ("describe Bob's X"), or frames an event from their perspective — that character goes **first** in `turn_order` regardless of default placement. **This is placement-only — it does NOT exclude other participants.** Other participants still go through the 3a tier evaluation and are included if they qualify. See the 3a "PLACEMENT, not EXCLUSION" note. (If both a TBC resumer AND a user prompt override apply to different characters, the TBC resumer wins — the frozen action must resolve before new direction can be applied.)
 
 ### 3c. TBC handling contract
 
@@ -206,7 +208,21 @@ Set `round_protagonist` as a top-level field in `reply_plan.json`.
 
 ## 5. Write output
 
-Write a JSON object to `infrastructure/dialogues/{dialogue_id}/reply_plan.json`:
+**Use the `Write` tool to write `infrastructure/dialogues/{dialogue_id}/reply_plan.json` directly.** Do NOT shell out to Bash/PowerShell, do NOT pipe through `python -c "..."`, do NOT generate a helper script in `/tmp/` or `application/scripts/`. The plan is a single JSON file — `Write` produces it in one call.
+
+**If the `Write` tool fails with `<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>`:** that means `reply_plan.json` already exists on disk from a prior run (e.g. a previous plan that failed validation and is being replanned). The fix is exactly two steps:
+
+1. Call the `Read` tool on `infrastructure/dialogues/{dialogue_id}/reply_plan.json` to load its current contents.
+2. Call `Write` again with your new plan content. It will succeed and overwrite the prior file.
+
+Do NOT attempt any of these workarounds — they have all failed in past sessions and pollute the repository:
+- `python -c "..."` inline mega-scripts (escape-quote hell on Windows bash)
+- `cat > /tmp/foo.py << 'PYEOF' ...` heredoc tricks (same quoting hell)
+- Writing a helper script into `application/scripts/` (that directory is for committed pipeline code, not throwaway plan-writers — leftover `_tmp_*.py` files have caused stale-content bugs in subsequent runs)
+
+The `Read`-then-`Write` recovery is faster, cleaner, and leaves no pollution. Always use it.
+
+Schema for the output JSON object:
 
 ```json
 {
@@ -336,4 +352,5 @@ After writing `reply_plan.json`, your work is done. Do **not** modify `infrastru
 - [ ] `character_briefs` populated for every speaking participant with full fields: name, gender, height, build, appearance_summary, core_traits, emotional_baseline, quirks, voice_description, speech_patterns, vocabulary_level
 - [ ] Silence fatigue applied — any participant silent 3+ rounds auto-promoted to Tier 2, 5+ rounds auto-promoted to Tier 1
 - [ ] **Player exclusion (when `player_id` is set):** if `player_id` is the most recent speaker, they do NOT appear in `turn_order` or `turns[]`
+- [ ] **User_prompt narrowing is placement-only, not exclusion:** if `user_prompt` named one character (e.g. `"Rosa's turn: ..."`, `"Alice does X"`), that character is Tier 1 + first in order, but every **other** participant was evaluated against Tier 1/2/3 normally. Specifically: if the named character's turn ends on a physical event landing on another participant's body (touch, contact, strike, gesture toward, addressed-by-name in dialogue), that other participant qualifies as Tier 1 "physically engaged" or "directly addressed" and MUST be in `turn_order`. A single-speaker `turn_order` is correct only when (a) `user_prompt` explicitly excludes others (`"Rosa-only"`, `"other characters stay silent"`), or (b) no other participant has a genuine reactive beat available.
 - [ ] Output written to `infrastructure/dialogues/{dialogue_id}/reply_plan.json`

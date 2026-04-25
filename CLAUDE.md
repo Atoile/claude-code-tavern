@@ -299,7 +299,7 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 
 0. **Overwrite check:** Before doing anything else, check whether `CLAUDE.overwrite.md` exists in the project root. If it does, read it — its contents extend these baseline instructions and take precedence where they conflict.
 
-1. **Read env config** (see above), then **read** `infrastructure/queue/queue.json`
+1. **Read env config fresh** — re-read `.env.local` (or `.env.example` if absent) at the start of **each queue run**, even if it was read earlier in the same session. The user may have changed flags between runs. Do not reuse a cached read. Then **read** `infrastructure/queue/queue.json`.
 2. **Find the next eligible task** — `status` is `pending` and every ID in `depends_on` has `status: done` (or `depends_on` is empty). Pick the first in array order.
 3. **Route** by task type:
 
@@ -422,9 +422,20 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 
    **Phase 1c — Handle validation failure:**
 
-   *Current behavior (interim):* Hard-stop the pipeline. Do NOT proceed to Phase 2. Do NOT spawn the handler agent yet. Instead:
+   The handler is **gated by check-ID coverage**. Read `application/dialogue/handle_plan_validation.md` and collect every check ID that has an established entry under the **"Known issue handling rules"** section (each rule declares its `check ID` in the `###` header). Then inspect every issue in `plan_validation.json.issues` and collect their `check` IDs.
 
-   1. Report the failing issues to the user concisely (one line per issue: check ID, severity, speaker, detail).
+   - **All failing check IDs are established** → spawn the handler (established-runtime path below).
+   - **Any failing check ID is not established** → interim hard-stop (unestablished-runtime path below). The handler cannot safely classify what it has no rule for, so surface it to the user first.
+
+   *Established runtime:* Spawn a Sonnet handler agent using `application/dialogue/handle_plan_validation.md`. The handler classifies each issue, then:
+   - **Critical issues** → handler deletes `reply_plan.json` + `plan_validation.json`, writes `handler_result.json` with `status: "restart"`. The orchestrator returns to Phase 1 (replan from scratch).
+   - **Fixable issues** → handler patches `reply_plan.json` in place, runs `check_beat_sizing.py` to verify, deletes the old `plan_validation.json`, writes `handler_result.json` with `status: "patched"` and a `revalidation_needed` boolean. Routing depends on the flag:
+     - `revalidation_needed: true` (any structural patch — split, weight bump, extract-to-new-beat, mixed) → orchestrator returns to Phase 1b (re-run validator against the patched plan).
+     - `revalidation_needed: false` (trim-only patches, sizing tool confirmed PASS) → orchestrator skips Phase 1b and proceeds directly to Phase 2. Pure trims cannot regress any non-sizing check, and the sizing tool has already verified the only thing a trim could break.
+
+   *Unestablished runtime (interim — only when at least one failing check ID has no rule yet):* Hard-stop the pipeline. Do NOT proceed to Phase 2. Do NOT spawn the handler agent. Instead:
+
+   1. Report the failing issues to the user concisely (one line per issue: check ID, severity, speaker, detail). Flag which check IDs are unestablished.
    2. Ask the user how this kind of failure should be handled (critical → restart plan, or fixable → specify the patch rule).
    3. After the user answers, append the new rule into `application/dialogue/handle_plan_validation.md` under the **"Known issue handling rules"** section. Use this format for each rule:
       ```
@@ -433,15 +444,7 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
       **Trigger:** <which detail patterns match this rule>
       **Action:** <exact patch instruction, or "restart plan phase">
       ```
-   4. Stop the pipeline. The user decides whether to re-run the queue manually.
-
-   *Eventual runtime (not yet enabled):* Spawn a Sonnet handler agent using `application/dialogue/handle_plan_validation.md`. The handler classifies each issue, then:
-   - **Critical issues** → handler deletes `reply_plan.json` + `plan_validation.json`, writes `handler_result.json` with `status: "restart"`. The orchestrator returns to Phase 1 (replan from scratch).
-   - **Fixable issues** → handler patches `reply_plan.json` in place, runs `check_beat_sizing.py` to verify, deletes the old `plan_validation.json`, writes `handler_result.json` with `status: "patched"` and a `revalidation_needed` boolean. Routing depends on the flag:
-     - `revalidation_needed: true` (any structural patch — split, weight bump, extract-to-new-beat, mixed) → orchestrator returns to Phase 1b (re-run validator against the patched plan).
-     - `revalidation_needed: false` (trim-only patches, sizing tool confirmed PASS) → orchestrator skips Phase 1b and proceeds directly to Phase 2. Pure trims cannot regress any non-sizing check, and the sizing tool has already verified the only thing a trim could break.
-
-   The handler is enabled once its "Known issue handling rules" section has enough accumulated coverage to handle failures autonomously.
+   4. Stop the pipeline. The user decides whether to re-run the queue manually. The newly-established rule will route through the handler on next encounter.
 
    **Phase 2 — Generate turns sequentially:**
 
@@ -638,14 +641,14 @@ When the user asks to **create a new character** (not repack an existing card), 
 3. `domain/character/template.json` — structural reference with inline guidance
 4. `application/character/create_from_scratch.md` — agent instructions and design guidelines
 5. `application/character/create_from_scratch.overwrite.md` — if it exists
-6. `domain/dialogue/writing_rules.md` — prose and formatting rules (dialogue seeds / sample lines must follow these)
-7. `domain/dialogue/writing_rules.overwrite.md` — if it exists
+6. Run `python application/scripts/build_writing_rules_cache.py` to build/refresh `domain/dialogue/writing_rules_cache.md` (merges baseline + `writing_rules.overwrite.md`).
+7. `domain/dialogue/writing_rules_cache.md` — the pre-merged prose and formatting rules (dialogue seeds / sample lines must follow these).
 
-All seven reads (skipping missing overwrites) must complete before prompting the user for design choices or writing any card data.
+All reads (skipping missing overwrites) must complete before prompting the user for design choices or writing any card data.
 
 ## Repacking a Raw Card
 
-When the user asks to **repack a raw SillyTavern card** (outside the normal queue flow — e.g. a direct request to repack a specific card), read the same seven files listed above in "Creating a Character from Scratch", **plus**:
+When the user asks to **repack a raw SillyTavern card** (outside the normal queue flow — e.g. a direct request to repack a specific card), follow the same build step and read the same files listed above in "Creating a Character from Scratch", **plus**:
 
 8. `application/character/repack.md` — repack agent instructions
 9. `application/character/repack.overwrite.md` — if it exists

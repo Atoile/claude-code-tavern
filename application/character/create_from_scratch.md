@@ -31,7 +31,7 @@ Greetings for manually created characters must be **expansive and descriptive** 
 - Fully expands on `scenario_defaults.typical_scenario`
 - Multi-paragraph: establishes setting, character's presence, mood, then a spoken line
 - The other character has just arrived; this character is already present
-- Uses writing_rules.md formatting throughout: `"speech"`, `*actions*`, `` `interior thoughts` ``
+- Uses `writing_rules_cache.md` formatting throughout: `"speech"`, `*actions*`, `` `interior thoughts` ``
 
 ### `alternate_greetings`
 
@@ -46,7 +46,7 @@ Each alternate greeting is equally expansive — same multi-paragraph standard a
 
 ## Writing rules reference
 
-All greeting and dialogue content follows `domain/dialogue/writing_rules.md`:
+All greeting and dialogue content follows `domain/dialogue/writing_rules_cache.md` (the pre-merged baseline + overwrite; run `python application/scripts/build_writing_rules_cache.py` to build/refresh it if missing or stale):
 
 - Spoken dialogue → `"double quotes"`
 - Physical actions → `*asterisks*`

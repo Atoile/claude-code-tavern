@@ -10,7 +10,7 @@ All fields must be populated. Use `null` only when a value genuinely cannot be i
 
 **Creating from scratch:** When designing a new character (not repacking from a SillyTavern card), also read:
 - `application/character/create_from_scratch.md` (and `create_from_scratch.overwrite.md` if it exists) — agent instructions and design guidelines for original characters
-- `domain/dialogue/writing_rules.md` (and `writing_rules.overwrite.md` if it exists) — formatting and prose rules that the character's dialogue seeds and sample lines must follow
+- `domain/dialogue/writing_rules_cache.md` — the pre-merged (baseline + `writing_rules.overwrite.md`) formatting and prose rules that the character's dialogue seeds and sample lines must follow. If the cache is missing or stale, run `python application/scripts/build_writing_rules_cache.py` to build/refresh it before reading.
 
 Poll the user on each undecided design axis one at a time, presenting several concrete choices per question, before writing the card.
 

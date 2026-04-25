@@ -15,16 +15,23 @@ You are the triage agent that runs when `plan_validation.json` comes back with `
 
 ## 1. Read inputs
 
-Read the following files:
+**Always read these two files first:**
 
 - `infrastructure/dialogues/{dialogue_id}/plan_validation.json` — the validator's failure report
 - `infrastructure/dialogues/{dialogue_id}/reply_plan.json` — the plan that failed
-- `infrastructure/dialogues/{dialogue_id}/active_lorebook.json`
-- `infrastructure/dialogues/{dialogue_id}/characters.json`
-- `infrastructure/dialogues/{dialogue_id}/recent_chat.json`
-- `infrastructure/dialogues/{dialogue_id}/reply_history.json` — if present
-- `infrastructure/dialogues/{dialogue_id}/tbc.json` — if present
-- `domain/dialogue/writing_rules_cache.md`
+
+**Then read additional files only if the failing check IDs require them.** Check which IDs appear in `plan_validation.json.issues` before opening anything else:
+
+| File | Read only when these check IDs appear |
+|---|---|
+| `infrastructure/dialogues/{dialogue_id}/active_lorebook.json` | `2e`, `2f2` |
+| `infrastructure/dialogues/{dialogue_id}/characters.json` | `2b1b`, `2b1c` |
+| `infrastructure/dialogues/{dialogue_id}/recent_chat.json` | `2b1c` |
+| `infrastructure/dialogues/{dialogue_id}/reply_history.json` | `2b`, `2b1c` |
+| `infrastructure/dialogues/{dialogue_id}/tbc.json` | `2b4`, any TBC-related check |
+| `domain/dialogue/writing_rules_cache.md` | `2e` |
+
+For example: if every failing issue is `2b3_beat_oversized` or `2b3_tone_oversized`, none of the conditional files are needed — the plan JSON contains everything required to classify and patch those.
 
 The `dialogue_id` is provided in your prompt.
 
@@ -92,6 +99,7 @@ For every entry in `plan_validation.json.issues`, decide whether it is **critica
 3. Classify each applied patch for the `revalidation_needed` flag (see step 5):
    - **`trim`** — Tier 1 in-place trim that only removes non-essential modifier words (descriptors, parentheticals, appositives, manner-adverbs). Purely subtractive. Does NOT change beat count, turn structure, or any field besides the trimmed string itself.
    - **`structural`** — anything else: split (Tier 3), extract-to-new-beat (Tier 2), weight bump (Tier 4), beat additions, index shifts, or any patch that rewrites semantic content beyond descriptor pruning.
+   - **`dismissed_not_smuggling`** — beat-level sizing flag reclassified and dismissed because the beat is genuinely atomic (sensation bundle / descriptor stuffing / single action + modifier cloud). No change made to the plan. Counts as a no-op for revalidation purposes — treat as equivalent to `trim` when computing `revalidation_needed`.
 
 4. Write `infrastructure/dialogues/{dialogue_id}/handler_result.json`:
    ```json
@@ -101,12 +109,13 @@ For every entry in `plan_validation.json.issues`, decide whether it is **critica
        {
          "check": "<check ID from the original issue>",
          "turn_index": <int or null>,
-         "patch_type": "trim | structural",
+         "patch_type": "trim | structural | dismissed_not_smuggling",
          "summary": "<what you changed and why>"
        }
      ],
-     "revalidation_needed": <true if any patch has patch_type: "structural", false if every patch is trim>,
-     "sizing_verified": true
+     "revalidation_needed": <true if any patch has patch_type: "structural", false if every patch is trim or dismissed_not_smuggling>,
+     "sizing_verified": true,
+     "dismissed_flags": [<array of check IDs dismissed as non-smuggling — empty if none>]
    }
    ```
 5. Delete the old `plan_validation.json`.
@@ -157,30 +166,98 @@ For every entry in `plan_validation.json.issues`, decide whether it is **critica
 - If NOT already flagged for sizing but the beat actually IS over 25 words → reclassify as `2b3_weight_beat_sizing` and hand to that rule.
 - If NOT over 25 words and NOT true smuggling → the original flag was a false positive; drop it and note in `handler_result.json`.
 
-### 2b3_weight_beat_sizing — beat exceeds 25-word cap
+### 2b1c_missing_reactor — participant qualifies as Tier 1 but was omitted from turn_order
+**Classification:** critical
+**Trigger:** validator flags one or more issues with `check: "2b1c_missing_reactor"`. The planner narrowed `turn_order` incorrectly — typically because a `user_prompt` naming one character was interpreted as single-character exclusive when it was placement-only.
+
+**Action:** restart plan phase. Write `handler_result.json` with `status: "restart"` and `reason: "Planner omitted Tier 1 reactor <speaker_id> (qualified via <trigger>). user_prompt narrowing is placement-only — other participants must be evaluated against 3a tiers normally."`. Delete `reply_plan.json` and `plan_validation.json`. The orchestrator re-runs Phase 1 from scratch; the replan should include every qualifying reactor.
+
+### 2b3_weight_beat_sizing / 2b3_beat_oversized — beat exceeds word cap (route to smuggling check)
 **Classification:** fixable
-**Trigger:** validator flags one or more beats with `check: "2b3_weight_beat_sizing"`.
+**Trigger:** validator flags one or more beats with `check: "2b3_weight_beat_sizing"` or `check: "2b3_beat_oversized"`. Both are treated as the same sizing-overage family.
 
-**Action — 5-tier algorithm (most-conservative-first):**
+**Rationale:** the 25-word beat cap exists primarily to catch beat smuggling (two atomic units packed into one string). A genuinely atomic beat that happens to be descriptor-rich is NOT a structural defect — the prose agent's per-beat expansion is governed by the turn's weight, not by per-beat word count. Trimming descriptor content off atomic beats strips load-bearing detail without fixing anything. Therefore: do not trim. Instead, route every beat-level sizing flag through the same reclassification logic used by `2b3_beat_smuggling` Step 7.
 
-For each flagged beat, attempt tiers in order. Stop at the first tier that resolves the violation.
+**Action — reclassify each flagged beat:**
 
-**Tier 1 — Trim in place.**
-If the beat is **1-5 words over cap** AND the excess is non-essential modifier content (adverbial phrases, parentheticals set off by em-dashes or commas, appositives, manner-adverbs, rhetorical restates), trim the modifiers in place to land ≤25 words. Preserves beat structure entirely. Sub-rules that steer toward Tier 1:
-- **Sensation bundle** (beat contains 3+ sensory descriptors of a single event) → prune to core event + 1-2 facets.
-- **Action + modifier cloud** (single verb + adverbial/parenthetical cloud) → drop the parenthetical, keep the action.
+1. Inspect the beat. Is it **true smuggling** (genuinely sequenced distinct motor acts — "straightens, lets wrap fall, stands still, gives look")?
 
-**Tier 2 — Extract descriptor to its own beat.**
-If the beat has heavy descriptor content (**≥30% of word count is anatomical/environmental/appositive detail**, typically bracketed by em-dashes or parentheses) AND the descriptor is load-bearing for prose expansion (can't just be pruned — the turn agent needs the detail), extract the descriptor into a separate beat. Then run the weight-cap check from Tier 3 before committing.
+2. **If true smuggling** → hand off to the `2b3_beat_smuggling` algorithm (split along atomic-action boundaries, check weight cap, bump if defensible, full stop otherwise). All bump-budget and weight-cap constraints from that rule apply. Classify as `patch_type: "structural"` — revalidation needed.
 
-**Tier 3 — Split along natural boundaries (if weight allows).**
-If trim can't bring the beat under cap AND it's not primarily descriptor stuffing, split into atomic sub-beats along natural boundaries. Check the turn's weight cap: if `current_beats - 1 + split_count ≤ weight_cap`, split and done.
+3. **If NOT true smuggling** (sensation bundle, descriptor stuffing, single-action with modifier cloud) → **dismiss the flag. No patch.** The beat is atomic; the word count is cosmetic. Record in `handler_result.json` under `patches[]` as:
+   ```
+   {
+     "check": "2b3_beat_oversized",
+     "turn_index": <int>,
+     "patch_type": "dismissed_not_smuggling",
+     "summary": "<why this beat is atomic — sensation bundle / descriptor stuffing / single action + modifier cloud>"
+   }
+   ```
+   A dismissed flag does NOT count as a "structural" patch — it is a no-op. If every beat-level flag is dismissed and no other patches apply, set `revalidation_needed: false`.
 
-**Tier 4 — Bump weight (+1 tier) + split.**
-Same rules as `2b3_beat_smuggling` Tier 5. Bump is permitted only if (a) the turn has not already been bumped this pass (**global +1 budget — shared across ALL check categories, see top of section**), AND (b) the next weight tier passes the narrative check. If both satisfied, bump and split. Consume the turn's bump budget.
+4. **Sizing tool interaction.** The sizing tool still reports PASS/FAIL against the 25-word cap. When dismissing a flag, the tool will continue to report FAIL for that beat on any re-run. That's expected — the tool's authority is subordinate to this rule. Do NOT re-trim a dismissed beat to satisfy the tool. If other beats need structural patches, run the tool once after those patches and ignore its FAIL on dismissed beats. Write `sizing_verified: true` in `handler_result.json` when non-dismissed flags pass; add `dismissed_flags: [<check IDs>]` to signal the orchestrator that the residual FAILs are intentional.
 
-**Tier 5 — Full stop.**
-Trim infeasible, split busts cap, bump not defensible OR budget spent. Write `handler_result.json` with `status: "restart"` and `reason: "Sizing violation on speaker <id> beat <idx> cannot be resolved within weight cap and bump budget."`
+### 2g_narrator_speech_purity — asterisk action inside character speech turns
+**Classification:** critical
+**Trigger:** validator flags one or more issues with `check: "2g_narrator_speech_purity"` in narrator mode. A character speech turn contains asterisk-wrapped third-person action narration (e.g. `*She closes her eyes.*`, `*Her left hand drifts to her obi knot.*`) inside a speech beat. In narrator mode, physical action belongs exclusively to `_narrator` turns — character speech turns contain dialogue (and interior thought via backticks) only.
+
+**Action:** restart plan phase. Write `handler_result.json` with `status: "restart"` and `reason: "Narrator-mode speech purity violation on speaker(s) <ids>: asterisk action markup is not permitted inside character speech turns. Any physical action the planner wants to script must live in a dedicated _narrator turn."`. Delete `reply_plan.json` and `plan_validation.json`. The orchestrator re-runs Phase 1; the replan must keep all stage-direction content in `_narrator` turns, not inside speech beats.
+
+### 2g_narrator_speech_action_mixed — action interleaved with dialogue in speech turn (alias of 2g_narrator_speech_purity)
+**Classification:** critical
+**Trigger:** validator flags one or more issues with `check: "2g_narrator_speech_action_mixed"`. Same violation class as `2g_narrator_speech_purity` — a character speech turn has physical action descriptions (asterisk-wrapped or inline prose) interleaved between dialogue beats. In narrator mode, character speech turns must contain only quoted dialogue; all physical action belongs exclusively to `_narrator` turns.
+
+**Action:** identical to `2g_narrator_speech_purity` — restart plan phase. Write `handler_result.json` with `status: "restart"` and `reason: "Narrator-mode speech purity violation on speaker(s) <ids>: action markup interleaved inside character speech turns (2g_narrator_speech_action_mixed). Physical actions must live in dedicated _narrator turns."`. Delete `reply_plan.json` and `plan_validation.json`. The orchestrator re-runs Phase 1.
+
+### 2b3_beat_count — narrator turn exceeds beat cap
+**Classification:** fixable
+**Trigger:** validator flags `check: "2b3_beat_count"` — a narrator (or speech) turn's `beats` array exceeds the narrator-mode cap of 1-3 beats per turn.
+**Action:** split the over-cap turn into two consecutive turns of the same `type` and `speaker`. Distribute beats so each new turn has ≤3 beats (prefer even split; if odd, front-load). Preserve `tone` on the first split turn; write a short continuation tone on the second. Re-index `turns[]` and `turn_order` for all turns after the split. Classify as `patch_type: "structural"`, `revalidation_needed: false` — this is a pure mechanical redistribution; beat text is unchanged, no new content is introduced, and the only check that could be affected (beat count) is by definition satisfied after the split.
+
+**Why:** `revalidation_needed: false` — a beat-count split does not alter beat content or semantic structure and cannot regress any check other than beat count itself, which the split directly resolves. The sizing tool is still run once after all patches to verify.
+
+### 2b3_narrator_beat_cap — narrator-mode speech beat smuggling
+**Classification:** fixable (conditional — see Action)
+**Trigger:** validator flags one or more beats with `check: "2b3_narrator_beat_cap"`. The beat is within the narrator-mode word cap (120 words for speech, 120 for narration) but compresses multiple distinct utterances or an utterance + embedded physical action into one beat. Semantically identical to `2b3_beat_smuggling` but specific to narrator-mode beat entries.
+
+**Action — split-if-fits algorithm:**
+
+1. **Revalidate each flag** using Step 1 of `2b3_beat_smuggling`. Distinguish true smuggling (distinct sequential utterances, or utterance + embedded action) from sensation bundles or descriptor stuffing. Dismiss non-smuggling flags the same way as Step 7 of that rule.
+
+2. **For each true-smuggling flag, compute the post-split beat count** for the turn:
+   - Split the flagged beat along utterance boundaries (one beat per distinct quoted utterance; any embedded physical action gets extracted to a new narrator turn inserted immediately before or after, per narrator-mode speech purity).
+   - `post_split_count = current_turn_beats - 1 + split_pieces`.
+
+3. **Check narrator-mode beat cap.** Narrator-mode speech turns allow 1-3 beats; narration turns allow 1-3 beats.
+   - **If `post_split_count ≤ 3`** → apply the split. Classify as `patch_type: "structural"`.
+   - **If `post_split_count > 3`** → full stop. Write `handler_result.json` with `status: "restart"` and `reason: "Narrator-mode beat-smuggling on speaker <id> turn <idx> cannot be split within the 1-3 beat cap."`
+
+4. **If any split requires extracting an embedded physical action into a new narrator turn**, also insert the new narrator turn into `turn_order` and `turns[]` at the correct index and renumber accordingly. This is structural and narrative-sensitive — cap the number of such insertions at one per handler pass. If more are needed, full stop → restart.
+
+5. After all patches, run `check_beat_sizing.py` once. Dismissed flags are fine per the usual rule; structural patches must land inside the cap.
+
+### 2b3_tone_oversized — tone exceeds word cap
+**Classification:** fixable
+**Trigger:** validator flags one or more items with `check: "2b3_tone_oversized"`. Tone cap is 40 words.
+
+**Action — Tier 1 trim in place.** Tone is a single string, not a beat — it has no beat-count or weight semantics, so the smuggling/split tiers do NOT apply. Trim non-essential modifier content to land ≤40 words: strip hedged negation chains ("Not X, not Y in a bad way —" → "Not X —"), prune rhetorical restates, drop parentheticals, collapse compound emotional descriptors to the load-bearing one. Classify as `patch_type: "trim"`.
+
+**If trim cannot land** → full stop. Write `handler_result.json` with `status: "restart"` and `reason: "Tone overage on speaker <id> turn <idx> cannot be trimmed to ≤40 words without gutting required mood context."`
+
+### 2c — turn ownership bleed (strip foreign action reference)
+**Classification:** fixable
+**Trigger:** validator flags one or more issues with `check: "2c"`. A character's beat describes an action or internal event belonging to another character — typically a receiving character narrating the other character's internal physiological or volitional event as a causal trigger (e.g. naming the other character's reaction as "X detonates with Y's surge"), or an acting character narrating the receiver's involuntary response as if it were the actor's own scripted action.
+
+**Action:** rewrite the offending beat(s) from the flagged character's own sensation-only POV. Strip the foreign action/event reference and replace with what that character physically experiences — what they feel, not what the other character is doing internally. Generic example: `"<receiver's reaction> detonates with <other character>'s <internal event>"` → `"a sudden surge of heat and pressure detonates <receiver's reaction>"` (no naming of the other character's event; only the received sensation). Classify as `patch_type: "structural"` — `revalidation_needed: true` (semantic content changes). If rewriting requires adding a beat to preserve meaning, check the weight cap first; if it fits, add it; if not, trim to one beat covering the sensation without the foreign reference.
+
+### 2f2 — cross-character ability leakage (scale-gated)
+**Classification:** fixable when ≤ 50% of turns are affected; critical when > 50% of turns are affected.
+**Trigger:** validator flags one or more issues with `check: "2f2"`. A character's beat names or implies another character's internal ability, physiological state, or action as if narrating it from inside their body — typically the receiving character naming the other character's internal trigger or state-change as an independent event rather than describing only the received sensation.
+
+**Action:**
+1. Count how many turns in `reply_plan.turns[]` have at least one `2f2` flag.
+2. **If ≤ 50% of turns affected:** fixable — apply the same sensation-only rewrite as `2c` (strip the foreign reference, reframe from receiving POV). Classify as `patch_type: "structural"`, `revalidation_needed: true`.
+3. **If > 50% of turns affected:** critical — the planner has systematically confused character identity boundaries. Write `handler_result.json` with `status: "restart"` and `reason: "2f2 cross-character ability leakage on majority of turns (<N> of <total>) — planner confused character identity boundaries."`. Delete `reply_plan.json` and `plan_validation.json`.
 
 ---
 

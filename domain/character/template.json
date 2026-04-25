@@ -110,7 +110,7 @@
     "archetype_tag": "Combined: e.g. 'noble-dominant-warm-mature'"
   },
   "dialogue_seeds": {
-    "greeting": "Default opening line for a scene. Multi-paragraph: establishes setting, character's presence, mood, then a spoken line. The other character has just arrived; this character is already present. Uses writing_rules.md formatting: \"speech\", *actions*, `interior thoughts`.",
+    "greeting": "Default opening line for a scene. Multi-paragraph: establishes setting, character's presence, mood, then a spoken line. The other character has just arrived; this character is already present. Uses writing_rules_cache.md formatting: \"speech\", *actions*, `interior thoughts`.",
     "alternate_greetings": [
       "Alternate 1 — near future: assumes some prior contact or familiarity. Equally expansive as the default.",
       "Alternate 2 — different setting, dynamic, or tone. Variety in scenario."

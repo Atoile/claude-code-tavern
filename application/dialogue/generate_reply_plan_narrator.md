@@ -52,14 +52,53 @@ A round in narrator mode = **everything between two player input checkpoints.** 
 
 **Speech turns** (`speaker: "<char_id>"`):
 - Character speaks in-character dialogue ONLY
-- No actions, no physical descriptions, no interior thoughts in the character's turn
+- **Every single beat in the `beats` array must be a quoted dialogue string** — start with `"`, end with `"`, no exceptions
+- No actions, no physical descriptions, no interior thoughts, no stage directions in any beat of the speech turn
 - Just what they say out loud, in their voice
+
+**FORBIDDEN PATTERN — asterisk actions interleaved with dialogue beats.** The most common planner failure is producing a speech turn where some beats are quoted dialogue and other beats are `*asterisk-wrapped*` action descriptions (often in first person, "as if scripting the character's POV"). This is a hard reject — the validator flags it as `2g_narrator_speech_action_mixed` and the entire plan is restarted from scratch.
+
+```
+WRONG (speech turn with action beats interleaved):
+{
+  "speaker": "lisa-minci",
+  "type": "speech",
+  "beats": [
+    "*I remove my hat and set it on the veranda railing, the rose tilting slightly toward Yae.*",
+    "\"I did consider announcing myself first.\""
+  ]
+}
+
+WRONG (parenthetical action inside a beat string):
+{
+  "speaker": "yae-miko",
+  "type": "speech",
+  "beats": [
+    "\"Both correct.\" (She tilts her head — the tell.) \"You came a long way, Lisa Minci.\""
+  ]
+}
+
+RIGHT (split into separate _narrator turn + pure speech turn):
+{
+  "speaker": "_narrator",
+  "type": "narration",
+  "beats": ["Lisa removes her hat and sets it on the veranda railing, the rose tilting slightly toward Yae."]
+},
+{
+  "speaker": "lisa-minci",
+  "type": "speech",
+  "beats": ["\"I did consider announcing myself first.\""]
+}
+```
+
+If the character does something physical *while* or *between* speaking, that physical action goes in a dedicated `_narrator` turn placed immediately before or after the speech turn. The speech turn beats stay pure dialogue — only what the character actually says aloud.
 
 **Narrator turns** (`speaker: "_narrator"`):
 - Third-person description of physical actions, environment, body language, scene transitions
 - Neutral voice (per `TAVERN_NARRATOR_VOICE` — default "neutral": clean, transparent, minimal)
 - The narrator sees everything but has no personality, no opinions, no emotional investment
 - The narrator NEVER speaks dialogue for characters — only describes what happens physically
+- **All physical action lives here.** Anything you would have written as `*she tilts her head*` or `*he removes his hat*` inside a speech beat belongs in a narrator turn instead.
 
 ### 3b. Round structure
 
@@ -145,7 +184,7 @@ Narrator sets the scene fully, establishing all characters. Round ends immediate
 {
   "speaker": "<char_id>",
   "type": "speech",
-  "beats": ["What the character says — one beat per distinct statement or thought"],
+  "beats": ["\"What the character says — each beat is a single quoted utterance, nothing else.\""],
   "tone": "Mood/register gloss for this line, ≤30 words",
   "direction_applied": "<from user_prompt or null>",
   "voice_notes": "<character's speech patterns for the prose agent>",
@@ -153,6 +192,8 @@ Narrator sets the scene fully, establishing all characters. Round ends immediate
   "tbc_state": null
 }
 ```
+
+**Hard rule on `beats`:** every string in a speech turn's `beats` array MUST start with `"` and end with `"`. If a beat does not start and end with a quote character, it is a violation — the validator will reject the plan. Stage directions, asterisk actions, parentheticals, and inline gestures are all forbidden inside speech beats. See the FORBIDDEN PATTERN block in section 3a for examples of what gets rejected.
 
 **Speech beat budgets:**
 
@@ -202,7 +243,21 @@ No `reaction`/`action`/`inflection`/`climax` weights in narrator mode — the be
 
 ## 5. Write output
 
-Write a JSON object to `infrastructure/dialogues/{dialogue_id}/reply_plan.json`:
+**Use the `Write` tool to write `infrastructure/dialogues/{dialogue_id}/reply_plan.json` directly.** Do NOT shell out to Bash/PowerShell, do NOT pipe through `python -c "..."`, do NOT generate a helper script in `/tmp/` or `application/scripts/`. The plan is a single JSON file — `Write` produces it in one call.
+
+**If the `Write` tool fails with `<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>`:** that means `reply_plan.json` already exists on disk from a prior run (e.g. a previous plan that failed validation and is being replanned). The fix is exactly two steps:
+
+1. Call the `Read` tool on `infrastructure/dialogues/{dialogue_id}/reply_plan.json` to load its current contents.
+2. Call `Write` again with your new plan content. It will succeed and overwrite the prior file.
+
+Do NOT attempt any of these workarounds — they have all failed in past sessions and pollute the repository:
+- `python -c "..."` inline mega-scripts (escape-quote hell on Windows bash)
+- `cat > /tmp/foo.py << 'PYEOF' ...` heredoc tricks (same quoting hell)
+- Writing a helper script into `application/scripts/` (that directory is for committed pipeline code, not throwaway plan-writers — leftover `_tmp_*.py` files have caused stale-content bugs in subsequent runs)
+
+The `Read`-then-`Write` recovery is faster, cleaner, and leaves no pollution. Always use it.
+
+Schema for the output JSON object:
 
 ```json
 {
@@ -257,7 +312,7 @@ After writing `reply_plan.json`, your work is done. Do **not** modify `queue.jso
 - [ ] Every narrator turn has `type: "narration"`, beats, tone (no voice_notes, no direction_applied)
 - [ ] Speech beats are concise (most lines 1 beat, monologues 2-3 max)
 - [ ] Narrator beats are minimal (1-2 beats typical, 3 max for major events)
-- [ ] No character's speech turn contains physical action descriptions — those belong to the narrator
+- [ ] **Every beat in every speech turn starts with `"` and ends with `"`** — no asterisk actions, no parentheticals, no inline stage directions, no first-person POV scripting. Physical action moves to a dedicated `_narrator` turn before/after.
 - [ ] No narrator turn contains dialogue — that belongs to characters
 - [ ] Goal awareness: if the conversation reaches a resolution point, `goal_resolution` is set
 - [ ] `character_briefs` populated for every speaking NPC (full 11-field schema)

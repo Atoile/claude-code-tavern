@@ -11,7 +11,7 @@ Scenes have **N participants** (currently 2 or 3). The plan's `turns[]` is varia
 
 > **Note:** Do not make any calls to the Anthropic API. You are already running inside Claude Code — just read files and write output directly.
 
-> **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not. **Exception:** check 2b3 invokes `python application/scripts/check_beat_sizing.py` via Bash — this is explicitly authorized because deterministic word counting is delegated to a script.
+> **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not. **Exception:** check 2b3 invokes `python application/scripts/check_beat_sizing.py` via Bash — this is explicitly authorized because deterministic word counting is delegated to a script. Use the exact short form shown in check 2b3 — no `cd` commands, no absolute paths, no path prefixes beyond `application/scripts/`.
 
 > **Overwrite check:** Before proceeding, check whether `application/dialogue/validate_plan.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
 
@@ -64,6 +64,26 @@ Read `characters.json` for `player_id`. If `player_id` is set AND the player cha
 - The player character must NOT appear in `turn_order` or `turns[]` — flag as **error** if they do (the player's line was already written to the chat by the UI, so generating an AI turn for them would create a duplicate)
 - Exception: if the player character is NOT the most recent speaker (they skipped their turn), they may appear or be absent at the planner's discretion — do not flag
 
+### 2b1c. Missing reactor check (check ID: `2b1c_missing_reactor`)
+
+When `turn_order` contains fewer than the full participant set (excluding any player_id exclusion), verify the omitted participant genuinely has no reactive beat available. A `user_prompt` naming one character is **placement guidance, not exclusion** — it does NOT remove other participants from Tier 1/2/3 eligibility.
+
+**Flag as error (`2b1c_missing_reactor`) if ALL of these are true for an omitted participant:**
+- They are NOT the player character (player exclusion has priority)
+- They are in the scene (present in `context_cache.json → participant_ids` or the plan's `character_briefs`)
+- At least one of the following scene signals applies:
+  - A speaking turn's beats describe a physical event landing on their body (touch, contact, strike, grip, gesture toward, addressed-by-impact)
+  - A speaking turn's dialogue directly addresses them by name or uses a second-person form clearly aimed at them ("does Alice feel it", "you okay?", "Alice, wait")
+  - A lorebook entry for them fires on the scene state (e.g. a reflex trigger)
+  - Their last turn ended on a frozen TBC-adjacent state that the current round is materially advancing (without them being the TBC resumer)
+  - Silence fatigue ≥ 3 rounds
+
+**Detail format:** `"<omitted_speaker> omitted from turn_order but qualifies as Tier 1 '<trigger>' — <specific evidence: beat index, dialogue fragment, lorebook keyword>"`.
+
+**Exception — do NOT flag:**
+- If the `user_prompt` contains an explicit exclusion directive ("Rosa-only", "other characters stay silent", "no reaction from Yukariko this round", etc.), respect it and do not flag.
+- If the round is clearly structured as a monologue/internal turn where the named character takes no action affecting others and speaks to nobody.
+
 ### 2b2. Round protagonist
 
 - `round_protagonist` must be set and must be a member of `turn_order`
@@ -75,11 +95,13 @@ Read `characters.json` for `player_id`. If `player_id` is set AND the player cha
 
 **Standard mode (non-narrator):**
 
-**Run the deterministic sizing tool first.** Do NOT count words by eye — the word counts drift across validation passes when done manually, producing phantom violations. Invoke:
+**Run the deterministic sizing tool first.** Do NOT count words by eye — the word counts drift across validation passes when done manually, producing phantom violations. Invoke **exactly**:
 
 ```
-python application/scripts/check_beat_sizing.py --dialogue-id {dialogue_id}
+python "application/scripts/check_beat_sizing.py" --dialogue-id "{dialogue_id}"
 ```
+
+Use this form verbatim — DO NOT use `cd`, no absolute path prefix, no shell variable expansion. The working directory is the repository root.
 
 This writes `infrastructure/dialogues/{dialogue_id}/beat_sizing.json` and prints a PASS/FAIL summary. Read `beat_sizing.json` — it contains authoritative word counts per beat, per tone, and beat-count-vs-weight-cap status for every turn. Use these counts verbatim when generating issues. Rules the tool enforces:
 

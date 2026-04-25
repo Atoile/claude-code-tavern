@@ -96,9 +96,11 @@ def main():
 
     scene_context = plan.get("scene_context_summary", "")
     for idx, t in enumerate(plan_turns):
+        beats = t.get("beats") or []
+        summary = "; ".join(b for b in beats if b)
         entry = {
             "speaker": t["speaker"],
-            "summary": t.get("summary") or t.get("text", ""),
+            "summary": summary,
         }
         if idx == 0:
             entry["scene_context"] = scene_context

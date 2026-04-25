@@ -68,6 +68,7 @@ Each character has a `dialogue_seeds.greeting` (always 1) and `dialogue_seeds.al
 - Third-person references to "the other character" → other participants' names or correct pronouns
 - Wrong gender pronouns for the other participants
 - Situational details about the other participants that don't fit their actual identity
+- **Third-person narrator POV for the speaker themselves** — some source cards write the speaker's own actions in third person throughout: `"She steps out from behind the counter"`, `"Her hand leads the way"`, `"Rosy has been watching her partner"`. These are not references to the other character — they are the speaker being narrated from outside. Convert every such line to first person: `"I step out from behind the counter"`, `"My hand leads the way"`, `"I've been watching her"`. This is a full POV conversion, not a pronoun swap. Do it systematically for every action beat and narration line in the opening, even if most of the opening is in this style.
 
 **What NOT to change:**
 - Direct address ("you," "your") — this is the speaker addressing the other participant(s) and stays as "you" (or "you both" if a 3+ scene and the line clearly addresses everyone)
@@ -114,7 +115,7 @@ Two reasons:
 
 **Formatting — fix source lines during adaptation:**
 
-Follow `domain/dialogue/writing_rules.md` for all speech wrapping, action description perspective, inline rules, and paragraph breaks.
+Follow `domain/dialogue/writing_rules_cache.md` for all speech wrapping, action description perspective, inline rules, and paragraph breaks. The cache is the pre-merged (baseline + `*.overwrite.md`) authoritative source at runtime. If it is missing, run `python application/scripts/build_writing_rules_cache.py` to build it before proceeding.
 
 ---
 
@@ -153,7 +154,7 @@ No markdown fences, no trailing commentary. Valid JSON only.
 - [ ] Openings use "you/your" for direct address, not the other participants' names
 - [ ] Every opening traces to a source line — no invented lines
 - [ ] All speech in `"double quotes"`, all actions in `*asterisks*`, all interior thoughts in `` `backticks` ``
-- [ ] Action descriptions written in first person (`*I reach for the caddy.*`, not `*She reaches for the caddy.*`)
+- [ ] Action descriptions written in first person (`*I reach for the caddy.*`, not `*She reaches for the caddy.*`). If a source card is written entirely in third-person narrator style for the speaker, every single action line must be converted — not just ones that mention "the other character".
 - [ ] Interior thoughts always on their own line — never inline with action beats or dialogue
 - [ ] Distinct paragraphs separated by blank lines (markdown-ready formatting)
 - [ ] Pronouns for the other participants match their actual gender(s)

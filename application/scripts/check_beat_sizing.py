@@ -3,8 +3,8 @@
 check_beat_sizing.py — Deterministic beat/tone/weight-cap sizing check for reply_plan.json.
 
 Usage:
-    python application/scripts/check_beat_sizing.py --dialogue-id <id>
-    python application/scripts/check_beat_sizing.py --plan-path <path>
+    python "application/scripts/check_beat_sizing.py" --dialogue-id <id>
+    python "application/scripts/check_beat_sizing.py" --plan-path <path>
 
 Writes:
     infrastructure/dialogues/<id>/beat_sizing.json   (when --dialogue-id is used)
@@ -12,18 +12,18 @@ Writes:
 Prints:
     Human-readable summary to stdout (PASS / FAIL with violation count).
 
-The validator agent invokes this tool instead of counting words by eye — whitespace-
-split word counting is deterministic, so the same unchanged plan always produces the
-same counts. No more phantom violations across validation passes.
+Mode-aware: reads plan["mode"] and applies the correct caps per mode.
 
-Rules enforced:
-    - Each beat string must be <= 25 words (whitespace-split count).
-    - Each tone string must be <= 40 words.
-    - len(beats) must fall within the weight's [min, max] cap:
-        reaction  [1, 2]
-        action    [2, 3]
-        inflection[3, 4]
-        climax    [4, 6]
+Standard mode caps:
+    - Beat word cap: 25 words
+    - Tone word cap: 40 words
+    - Beat count by weight: reaction[1,2], action[2,3], inflection[3,4], climax[4,6]
+
+Narrator mode caps (plan["mode"] == "narrator"):
+    - Beat word cap: 120 words (both speech and narration beats)
+    - Tone word cap: 40 words
+    - Beat count by type: speech[1,3], narration[1,3]
+    - Weight field is not used — beat count checked against turn["type"] instead
 
 Word count rule: len(text.split()) — split on any whitespace run. Spaced em-dashes
 count as their own token; contractions ("she's") count as one word. Punctuation
@@ -35,13 +35,21 @@ import json
 import os
 import sys
 
-BEAT_WORD_CAP = 25
+# Standard mode
+BEAT_WORD_CAP_STANDARD = 25
 TONE_WORD_CAP = 40
 WEIGHT_CAPS = {
     "reaction":   [1, 2],
     "action":     [2, 3],
     "inflection": [3, 4],
     "climax":     [4, 6],
+}
+
+# Narrator mode
+BEAT_WORD_CAP_NARRATOR = 120
+TYPE_CAPS_NARRATOR = {
+    "speech":    [1, 3],
+    "narration": [1, 3],
 }
 
 
@@ -52,36 +60,64 @@ def count_words(text):
 
 
 def check_plan(plan):
+    narrator_mode = plan.get("mode") == "narrator"
+    beat_word_cap = BEAT_WORD_CAP_NARRATOR if narrator_mode else BEAT_WORD_CAP_STANDARD
+
     turns_report = []
     violations = []
 
     for i, turn in enumerate(plan.get("turns", [])):
         speaker = turn.get("speaker", "?")
-        weight = turn.get("weight", "?")
         beats = turn.get("beats", [])
         tone = turn.get("tone", "")
-
-        weight_cap = WEIGHT_CAPS.get(weight)
         beat_count = len(beats)
         beat_count_ok = True
-        if weight_cap is not None:
-            lo, hi = weight_cap
-            beat_count_ok = lo <= beat_count <= hi
-            if not beat_count_ok:
-                violations.append({
-                    "kind": "beat_count",
-                    "turn_index": i,
-                    "speaker": speaker,
-                    "weight": weight,
-                    "beat_count": beat_count,
-                    "cap": weight_cap,
-                    "detail": f"Turn {i} ({speaker}) weight '{weight}' requires {lo}-{hi} beats but has {beat_count}.",
-                })
+
+        if narrator_mode:
+            turn_type = turn.get("type", "?")
+            type_cap = TYPE_CAPS_NARRATOR.get(turn_type)
+            weight = turn_type  # use type as label for reporting
+            weight_cap = type_cap
+            if type_cap is not None:
+                lo, hi = type_cap
+                beat_count_ok = lo <= beat_count <= hi
+                if not beat_count_ok:
+                    violations.append({
+                        "kind": "beat_count",
+                        "turn_index": i,
+                        "speaker": speaker,
+                        "type": turn_type,
+                        "beat_count": beat_count,
+                        "cap": type_cap,
+                        "detail": (
+                            f"Turn {i} ({speaker}) type '{turn_type}' requires "
+                            f"{lo}-{hi} beats but has {beat_count}."
+                        ),
+                    })
+        else:
+            weight = turn.get("weight", "?")
+            weight_cap = WEIGHT_CAPS.get(weight)
+            if weight_cap is not None:
+                lo, hi = weight_cap
+                beat_count_ok = lo <= beat_count <= hi
+                if not beat_count_ok:
+                    violations.append({
+                        "kind": "beat_count",
+                        "turn_index": i,
+                        "speaker": speaker,
+                        "weight": weight,
+                        "beat_count": beat_count,
+                        "cap": weight_cap,
+                        "detail": (
+                            f"Turn {i} ({speaker}) weight '{weight}' requires "
+                            f"{lo}-{hi} beats but has {beat_count}."
+                        ),
+                    })
 
         beats_report = []
         for bi, beat in enumerate(beats, start=1):
             wc = count_words(beat)
-            over = wc > BEAT_WORD_CAP
+            over = wc > beat_word_cap
             beats_report.append({
                 "index": bi,
                 "word_count": wc,
@@ -95,10 +131,13 @@ def check_plan(plan):
                     "speaker": speaker,
                     "beat_index": bi,
                     "word_count": wc,
-                    "cap": BEAT_WORD_CAP,
-                    "excess": wc - BEAT_WORD_CAP,
+                    "cap": beat_word_cap,
+                    "excess": wc - beat_word_cap,
                     "text": beat,
-                    "detail": f"Turn {i} ({speaker}) beat {bi} is {wc} words (cap {BEAT_WORD_CAP}, over by {wc - BEAT_WORD_CAP}).",
+                    "detail": (
+                        f"Turn {i} ({speaker}) beat {bi} is {wc} words "
+                        f"(cap {beat_word_cap}, over by {wc - beat_word_cap})."
+                    ),
                 })
 
         tone_wc = count_words(tone)
@@ -112,7 +151,10 @@ def check_plan(plan):
                 "cap": TONE_WORD_CAP,
                 "excess": tone_wc - TONE_WORD_CAP,
                 "text": tone,
-                "detail": f"Turn {i} ({speaker}) tone is {tone_wc} words (cap {TONE_WORD_CAP}, over by {tone_wc - TONE_WORD_CAP}).",
+                "detail": (
+                    f"Turn {i} ({speaker}) tone is {tone_wc} words "
+                    f"(cap {TONE_WORD_CAP}, over by {tone_wc - TONE_WORD_CAP})."
+                ),
             })
 
         turns_report.append({
@@ -129,6 +171,7 @@ def check_plan(plan):
         })
 
     summary = {
+        "mode": "narrator" if narrator_mode else "standard",
         "total_turns": len(turns_report),
         "beat_oversized_count": sum(1 for v in violations if v["kind"] == "beat_oversized"),
         "tone_oversized_count": sum(1 for v in violations if v["kind"] == "tone_oversized"),
@@ -136,13 +179,19 @@ def check_plan(plan):
         "pass": len(violations) == 0,
     }
 
+    rules = {
+        "mode": "narrator" if narrator_mode else "standard",
+        "beat_word_cap": beat_word_cap,
+        "tone_word_cap": TONE_WORD_CAP,
+        "word_count_method": "whitespace-split (len(text.split()))",
+    }
+    if narrator_mode:
+        rules["type_caps"] = TYPE_CAPS_NARRATOR
+    else:
+        rules["weight_caps"] = WEIGHT_CAPS
+
     return {
-        "rules": {
-            "beat_word_cap": BEAT_WORD_CAP,
-            "tone_word_cap": TONE_WORD_CAP,
-            "weight_caps": WEIGHT_CAPS,
-            "word_count_method": "whitespace-split (len(text.split()))",
-        },
+        "rules": rules,
         "turns": turns_report,
         "summary": summary,
         "violations": violations,
@@ -186,7 +235,7 @@ def main():
     s = report["summary"]
     status = "PASS" if s["pass"] else "FAIL"
     print(
-        f"{status}: {output_path} | "
+        f"{status} [{s['mode']}]: {output_path} | "
         f"turns={s['total_turns']} "
         f"beat_oversized={s['beat_oversized_count']} "
         f"tone_oversized={s['tone_oversized_count']} "
