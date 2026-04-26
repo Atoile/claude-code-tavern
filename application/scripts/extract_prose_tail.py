@@ -15,7 +15,6 @@ while giving prose agents enough to match voice and register.
 import argparse
 import json
 import os
-import sys
 
 TURN_COUNT = 2
 CHAR_LIMIT = 500

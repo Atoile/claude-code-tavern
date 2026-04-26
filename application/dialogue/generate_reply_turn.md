@@ -11,7 +11,9 @@ A round may have 1, 2, or N turns total. You write one of them, identified by yo
 
 > **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not.
 
-> **Overwrite check:** Before proceeding, check whether `application/dialogue/generate_reply_turn.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
+> **Overwrite check:** The orchestrator already probed for `application/dialogue/generate_reply_turn.overwrite.md` and listed it in the prompt's Required reads block (if present) or absent_confirmed block (if not). Trust those lists — do not Glob or Bash-stat for it yourself.
+
+> **Input contract:** Required reads in the prompt is the COMPLETE list of files for this spawn. Do not Read, Glob, or Bash-stat any other path. The orchestrator pre-computes turn-index-specific reads (last_turn vs prior reply_turn_*) and lists exactly what your turn needs.
 
 ---
 
@@ -28,6 +30,7 @@ Your prompt contains the task input (queue item) inlined and a "Required reads" 
   - `writing_rules` — full formatting and content rules (merged baseline + overwrite)
   - `prose_tail` — last 2 dialogue entries truncated, for voice continuity
   - `scene_context` — current scene state summary
+  - **`scene_anchor`** — LOAD-BEARING. The non-negotiable scene state carried over from the prior round's end. Six fields: `time`, `location`, `proximity`, `positions` (per-char), `wardrobe` (per-char), `in_progress_action`. Your prose MUST open from this exact state. Any state change vs the anchor must be explicitly narrated as a beat — characters cannot teleport, time cannot reverse, wardrobe cannot silently change, proximity cannot jump (e.g. anchor says "intimate, within reach of <char_b>" → you cannot open with "I step off parade rest 3.9m away" without first narrating the disengagement). If your plan turn opens with an action that contradicts the anchor, the planner has already screwed up and the validator should have caught it; honor the anchor regardless and write the most coherent prose you can.
   - `turn_index`, `total_turns`, `speaker` — metadata
 
 Do NOT read `reply_plan.json`, `active_lorebook.json`, `writing_rules_cache.md`, or `prose_tail.json` directly — the cache already contains everything extracted from them.
@@ -55,6 +58,7 @@ From the turn context cache, use:
 - `writing_rules` — all formatting, craft, and content rules
 - `prose_tail` — voice continuity reference
 - `scene_context` — current scene state
+- `scene_anchor` — non-negotiable scene state carryover (time, location, proximity, positions, wardrobe, in_progress_action)
 
 ---
 

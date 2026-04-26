@@ -74,7 +74,7 @@ def main():
             continue
         turns.append(turn_data)
 
-    output = {"turns": turns}
+    output: dict[str, object] = {"turns": turns}
 
     turn_state = plan.get("turn_state")
     if turn_state is not None:
@@ -109,8 +109,10 @@ def main():
     history = history[-HISTORY_MAX_TURNS:]
     write_json(history_path, history)
 
-    # Clean up intermediate files
-    os.remove(plan_path)
+    # Clean up intermediate files. reply_plan.json is preserved post-merge for
+    # inspection/debugging — the orchestrator deletes it at the start of the
+    # NEXT round via _clear_stale_round_artifacts. This keeps the last completed
+    # round's plan readable while the chat shows its turns.
     for tf in turn_files:
         os.remove(tf)
     prose_tail_path = os.path.join(dialogue_dir, "prose_tail.json")

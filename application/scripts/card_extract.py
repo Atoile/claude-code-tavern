@@ -14,7 +14,6 @@ import base64
 import json
 import sys
 import os
-import zlib
 
 
 def read_png_chunks(path):

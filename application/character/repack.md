@@ -45,7 +45,9 @@ When the user asks to make changes to an already-repacked `data.json` (rather th
 
 > **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not.
 
-> **Overwrite check:** Before proceeding, check whether `application/character/repack.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
+> **Overwrite check:** The orchestrator already probed for `application/character/repack.overwrite.md` and listed it in the prompt's Required reads block (if present) or absent_confirmed block (if not). Trust those lists — do not Glob or Bash-stat for it yourself.
+
+> **Input contract:** Required reads in the prompt is the COMPLETE list of pre-existing files for this spawn. Do not Read, Glob, or Bash-stat any other path beyond what's listed there or what your numbered steps below explicitly produce (e.g. `<output_dir>/legacy.json` after `card_extract.py` writes it).
 
 1. **Read everything** in the source data before starting. Understand the character holistically.
 2. **Synthesize, don't copy-paste.** Rewrite descriptions into the structured fields. Normalize prose into concise, actionable data.

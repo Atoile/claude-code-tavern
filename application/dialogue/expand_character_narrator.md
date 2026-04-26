@@ -11,6 +11,8 @@ You see ONLY your own character data. You do not know other characters' personal
 
 > **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not.
 
+> **Input contract:** Required reads in the prompt is the COMPLETE list of files for this spawn. Your character brief is inlined directly in the prompt by the orchestrator — do not Glob or Read for additional context cache files. The plan_slice_{speaker}.json sidecar is your structured plan input.
+
 ---
 
 ## 1. Initial setup (first call only)
@@ -25,6 +27,7 @@ This contains:
 - `turns` — ONLY your turns (beats, tone, voice_notes)
 - `brief` — your character_brief (null for narrator)
 - `scene_context_summary` — current scene state
+- `scene_anchor` — LOAD-BEARING scene state (time, location, proximity, positions, wardrobe, in_progress_action). Your prose must start from this exact state; if you are a character speaker your dialogue must be coherent with the anchor; if you are the narrator your physical descriptions must match it. Characters cannot teleport, time cannot reverse, wardrobe cannot silently change.
 - `round_protagonist` — who's driving this round
 - `narrator_voice` — (narrator only) style register
 

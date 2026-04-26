@@ -679,3 +679,23 @@ application/character/repack.overwrite.md ← user extension (gitignored)
 **Gitignore:** `*.overwrite.md` is excluded from version control. Users create and manage their own overwrite files locally.
 
 **Scope:** Any agent or domain file can have an overwrite counterpart. The naming convention is always `<original-filename>.overwrite.md` in the same directory.
+
+## Python Linting
+
+When the user asks to **lint** Python files, use the project lint scripts:
+
+| Request | Command |
+|---|---|
+| "lint everything", "lint all files" | `python lint_all.py` |
+| "lint changed", "lint what I changed" | `python lint_changed.py` |
+| specific file / directory | `ruff check <files>` then `pyright <files>` directly |
+
+`lint_all.py` — runs ruff + pyright over every `.py` file tracked by git.
+`lint_changed.py` — runs ruff + pyright over staged + unstaged + untracked `.py` files only.
+
+Both scripts auto-cd to repo root, so they work from any subdirectory.
+
+**Workflow:**
+1. Pick the right script (or direct invocation for a scoped target).
+2. Report all findings from both tools.
+3. Fix issues the user asks to fix, or summarise if they just want a report.

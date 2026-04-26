@@ -29,7 +29,7 @@ def main():
     cache_mtime = os.path.getmtime(CACHE) if os.path.exists(CACHE) else 0
 
     if cache_mtime >= newest_source:
-        print(f"OK: writing_rules_cache.md is up to date")
+        print("OK: writing_rules_cache.md is up to date")
         return
 
     parts = []

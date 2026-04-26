@@ -1,0 +1,26 @@
+{
+  "include": [
+    "application",
+    "lint_all.py",
+    "lint_changed.py"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "**/node_modules"
+  ],
+  "typeCheckingMode": "basic",
+  "reportUnknownVariableType": "error",
+  "reportUnknownMemberType": "error",
+  "reportUnknownArgumentType": "error",
+  "reportUnknownParameterType": "error",
+  "reportUnknownLambdaType": "error",
+  "reportMissingTypeArgument": "error",
+  "reportMissingParameterType": "warning",
+  "reportGeneralTypeIssues": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportOptionalSubscript": "error",
+  "reportPossiblyUnboundVariable": "error",
+  "reportImplicitOverride": "none",
+  "reportMissingTypeStubs": "none"
+}

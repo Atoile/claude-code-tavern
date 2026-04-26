@@ -13,7 +13,9 @@ Scenes have **N participants** (currently 2 or 3). The plan's `turns[]` is varia
 
 > **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not. **Exception:** check 2b3 invokes `python application/scripts/check_beat_sizing.py` via Bash — this is explicitly authorized because deterministic word counting is delegated to a script. Use the exact short form shown in check 2b3 — no `cd` commands, no absolute paths, no path prefixes beyond `application/scripts/`.
 
-> **Overwrite check:** Before proceeding, check whether `application/dialogue/validate_plan.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
+> **Overwrite check:** The orchestrator already probed for `application/dialogue/validate_plan.overwrite.md` and listed it in the prompt's Required reads block (if present) or absent_confirmed block (if not). Trust those lists — do not Glob or Bash-stat for it yourself.
+
+> **Input contract:** Required reads in the prompt is the COMPLETE list of files for this spawn. Do not Read, Glob, or Bash-stat any other path. The orchestrator manifests exactly the files needed for the validation checks running on this round.
 
 ---
 
@@ -21,7 +23,9 @@ Scenes have **N participants** (currently 2 or 3). The plan's `turns[]` is varia
 
 Read the following files:
 
-- `infrastructure/dialogues/{dialogue_id}/reply_plan.json` — the plan to validate. The plan's `character_briefs` field contains full per-character data (name, gender, height, build, appearance_summary, core_traits, emotional_baseline, quirks, voice_description, speech_patterns, vocabulary_level) — use this for ALL character data cross-references. **Do NOT read `context_cache.json`** — the briefs already carry everything you need, extracted by the planner at plan time.
+- `infrastructure/dialogues/{dialogue_id}/reply_plan.json` — the plan to validate (turn structure, beats, tone, scene_context_summary, **scene_anchor**, etc.). **`character_briefs` is no longer in this file** — it lives in a sidecar.
+- `infrastructure/dialogues/{dialogue_id}/last_turn.json` — last turn from the prior round, full text. Authoritative source for what the prior round ended on; used to cross-check `scene_anchor` against the actual prose state.
+- `infrastructure/dialogues/{dialogue_id}/character_briefs.json` — per-character voice/identity data, dict keyed by char_id. Each entry has: name, gender, height, build, appearance_summary, core_traits, emotional_baseline, quirks, voice_description, speech_patterns, vocabulary_level. Use this for ALL character data cross-references. **Do NOT read `context_cache.json` or `context_cache_*.json`** — the briefs sidecar already carries everything you need, distilled by the orchestrator at Phase 0.
 - `infrastructure/dialogues/{dialogue_id}/active_lorebook.json` — per-turn filtered lorebook, dict-keyed by char_id under `entries_by_char`. Use this to verify `rule_triggers` in the plan reference entries that actually exist for the relevant speaker.
 - `infrastructure/dialogues/{dialogue_id}/reply_history.json` — flat per-turn rolling history (~20 turns; may not exist if first round)
 - `infrastructure/dialogues/{dialogue_id}/tbc.json` — **may or may not exist.** If present, the prior round ended on a TBC freeze that this new plan must resolve. Schema: `{speaker, tbc_state, frozen_at}`.
@@ -38,15 +42,15 @@ Run every check below. For each failure, record it with a severity and explanati
 
 ### 2a. Character identity
 
-- Every `speaker` in `turns` must match a key in the plan's `character_briefs`
-- Every id in `turn_order` must match a key in `character_briefs`
+- Every `speaker` in `turns` must match a key in `character_briefs.json`
+- Every id in `turn_order` must match a key in `character_briefs.json`
 - `turn_order[i]` must equal `turns[i].speaker` for every i
-- `character_briefs` must contain an entry for every speaker in `turn_order` (one brief per speaking participant this round)
+- `character_briefs.json` must contain an entry for every speaker in `turn_order` (one brief per speaking participant this round)
 - Each brief must have all required fields: `name`, `gender`, `height`, `build`, `appearance_summary`, `core_traits`, `emotional_baseline`, `quirks`, `voice_description`, `speech_patterns`, `vocabulary_level` — flag as error if any are missing
 - `turn_order` must contain at least one entry
 - A participant may appear at most once in `turn_order` unless the plan explicitly justifies the duplicate (rare)
 
-**Narrator mode exemption:** When `mode` is `"narrator"`, the speaker `_narrator` is a valid pseudo-speaker that does NOT require a `character_briefs` entry. Exclude `_narrator` from all character identity checks — do not flag it as unknown, do not require a brief for it. The duplicate rule also does not apply to `_narrator` (it may appear multiple times in `turn_order`). All other speakers must still pass the standard identity checks.
+**Narrator mode exemption:** When `mode` is `"narrator"`, the speaker `_narrator` is a valid pseudo-speaker that does NOT require a `character_briefs.json` entry. Exclude `_narrator` from all character identity checks — do not flag it as unknown, do not require a brief for it. The duplicate rule also does not apply to `_narrator` (it may appear multiple times in `turn_order`). All other speakers must still pass the standard identity checks.
 
 ### 2b. Turn order
 
@@ -70,7 +74,7 @@ When `turn_order` contains fewer than the full participant set (excluding any pl
 
 **Flag as error (`2b1c_missing_reactor`) if ALL of these are true for an omitted participant:**
 - They are NOT the player character (player exclusion has priority)
-- They are in the scene (present in `context_cache.json → participant_ids` or the plan's `character_briefs`)
+- They are in the scene (present as a key in `character_briefs.json`)
 - At least one of the following scene signals applies:
   - A speaking turn's beats describe a physical event landing on their body (touch, contact, strike, grip, gesture toward, addressed-by-impact)
   - A speaking turn's dialogue directly addresses them by name or uses a second-person form clearly aimed at them ("does Alice feel it", "you okay?", "Alice, wait")
@@ -216,6 +220,44 @@ For each turn, the `tone` field and the language of each beat must be consistent
 Flag voice bleed as **warning**, escalate to **error** if the bleed claims an ability that belongs to a different character (which is also a 2f2 error).
 
 **Narrator mode exemption:** Skip voice register checks for `_narrator` turns entirely — the narrator's voice is set by the `TAVERN_NARRATOR_VOICE` env variable, not by character briefs. Only apply voice register consistency checks to character speech turns in narrator mode.
+
+### 2h. Scene anchor contradiction (check ID: `2h_scene_anchor_contradiction`)
+
+The plan's `scene_anchor` field MUST mirror `scene_state.json.current_state` exactly. `scene_state.json` is the persistent canonical scene state, updated by the planner each round with deltas extracted from `last_turn.json`. Every populated anchor field is a contract the round must honor. This check fires under any of the following conditions:
+
+**2h.1 — Missing or incomplete scene_anchor:**
+- `scene_anchor` is absent from `reply_plan.json` → flag as **error** with detail `"scene_anchor is missing from the plan"`.
+- Any of the six fields (`time`, `location`, `proximity`, `positions`, `wardrobe`, `in_progress_action`) is empty / null / "" → flag as **error** with detail naming the missing field.
+- `positions` or `wardrobe` is missing an entry for any participant in `turn_order` (excluding `_narrator`) → flag as **error** with detail `"scene_anchor.<positions|wardrobe> missing entry for <char_id>"`.
+
+**2h.2a — Anchor doesn't mirror scene_state.current_state:**
+- Read `scene_state.json` (if it exists). Compare the plan's `scene_anchor` field-by-field against `scene_state.current_state`.
+- They MUST match exactly. The planner's job is to update `scene_state` first, then mirror it into the anchor. Disagreement means the planner skipped the read-update-write cycle.
+- Flag as **error** for any mismatched field with detail: `"scene_anchor.<field> does not mirror scene_state.current_state.<field>: anchor='<anchor value>' state='<state value>'"`.
+- If `scene_state.json` does not exist (first reply round): skip this sub-check; the planner is establishing the initial state.
+
+**2h.2b — Anchor / state contradicts last_turn.json prose:**
+- Read `last_turn.json` (if it exists). Cross-reference the anchor's `time`, `location`, `proximity`, `positions`, `wardrobe`, `in_progress_action` against the explicit details in the prior round's prose.
+- Flag as **error** if any anchor field directly contradicts what the prior round's prose established. Examples:
+  - Prose says "18:47, after-hours" — anchor says `"time": "morning briefing, 09:00"`
+  - Prose says "<char_a> seated across from <char_b>, within reach" — anchor says `"proximity": "3.9m apart"`
+  - Prose says "<char_a>: blazer off, sleeves rolled, collar loosened" — anchor wardrobe entry says `"<char_a>: full business suit"`
+- Detail format: `"scene_anchor.<field> contradicts last_turn prose: anchor='<anchor value>' prose='<prose excerpt>'"`.
+- If `last_turn.json` does not exist (truly first round, no greeting), skip 2h.2b — anchor is allowed to be inferred from scenario / goals.
+
+**2h.3 — Plan beats contradict the anchor:**
+- For each turn, scan `beats` and `tone` for state references that conflict with the anchor.
+- Flag as **error** for any of these patterns:
+  - **Time reversal:** beat references a time that's earlier than the anchor's time (e.g. anchor says "18:47", beat says "at 15:00 yesterday morning"). Future-tense references to scheduled events are OK.
+  - **Position teleport:** beat opens with a character at a position that contradicts their anchor `positions[char_id]` value, AND no prior beat in the same round narrates the transition. Example: anchor says "<char_a> seated across the desk from <char_b>", first beat is "I step off parade rest 3.9m from <char_b>" without any prior beat narrating <char_a> standing up.
+  - **Wardrobe silent change:** beat references a wardrobe state that differs from anchor `wardrobe[char_id]` without a prior beat narrating the change. Example: anchor says "<char_a>: blazer off", beat references "<char_a> straightens her blazer" without a beat narrating her putting it on.
+  - **Proximity jump:** beats establish a proximity that differs from anchor `proximity` without an explicit transition beat first.
+- Detail format: `"turn[<i>] beat <j> contradicts scene_anchor.<field>: beat='<beat excerpt>' anchor='<anchor value>'"`.
+- Note: **the FIRST beat of turn 0** carries the heaviest scrutiny — that's the round's opening, where anchor consistency is most important. Later beats can shift state IF prior beats narrate the transition.
+
+**Narrator mode note:** In narrator mode the anchor still applies. The first `_narrator` beat (or first speech beat if there's no leading narrator turn) carries the same anchor-consistency obligation.
+
+**First-round exception (no `last_turn.json`):** Only 2h.1 and 2h.3 apply. The anchor is inferred from scenario / context_cache, not from prior prose, so 2h.2's prose-cross-check is skipped.
 
 ---
 

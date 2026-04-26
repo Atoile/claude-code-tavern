@@ -56,9 +56,18 @@ def main():
     plan = load_json(plan_path)
     turns = plan.get("turns", [])
     turn_order = plan.get("turn_order", [])
-    briefs = plan.get("character_briefs", {})
+
+    # Briefs now live in a sidecar file built by build_character_briefs.py.
+    # Fall back to plan.character_briefs if the sidecar is missing.
+    briefs_path = os.path.join(dialogue_dir, "character_briefs.json")
+    if os.path.exists(briefs_path):
+        briefs = load_json(briefs_path) or {}
+    else:
+        briefs = plan.get("character_briefs", {})
+
     scene_ctx = plan.get("scene_context_summary", "")
     protagonist = plan.get("round_protagonist", "")
+    scene_anchor = plan.get("scene_anchor") or {}
 
     # Group turns by speaker
     speakers = {}
@@ -78,6 +87,7 @@ def main():
             "turns": data["turns"],
             "brief": briefs.get(speaker) if speaker != "_narrator" else None,
             "scene_context_summary": scene_ctx,
+            "scene_anchor": scene_anchor,
             "round_protagonist": protagonist,
         }
         if speaker == "_narrator":

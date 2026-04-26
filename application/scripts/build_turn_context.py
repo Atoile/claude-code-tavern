@@ -60,7 +60,13 @@ def main():
         sys.exit(1)
 
     turns = plan.get("turns", [])
-    briefs = plan.get("character_briefs", {})
+
+    # Briefs now live in a sidecar file built by build_character_briefs.py in
+    # Phase 0 — the planner no longer copies them into reply_plan.json. Fall
+    # back to plan.character_briefs if the sidecar is missing (older dialogues
+    # whose plans still carry briefs inline).
+    briefs_path = os.path.join(dialogue_dir, "character_briefs.json")
+    briefs = load_json(briefs_path) or plan.get("character_briefs", {})
 
     # Writing rules
     writing_rules = load_text("domain/dialogue/writing_rules_cache.md") or ""
@@ -70,6 +76,12 @@ def main():
 
     # Scene context summary from plan
     scene_context = plan.get("scene_context_summary", "")
+
+    # Scene anchor — load-bearing carryover from prior round's end-state.
+    # Turn agents must honor every populated field (time, location, proximity,
+    # positions, wardrobe, in_progress_action). Empty-dict fallback for older
+    # plans that predate this field.
+    scene_anchor = plan.get("scene_anchor") or {}
 
     built = 0
     for i, turn in enumerate(turns):
@@ -88,6 +100,7 @@ def main():
             "total_turns": len(turns),
             "speaker": speaker,
             "scene_context": scene_context,
+            "scene_anchor": scene_anchor,
             "plan_turn": turn,
             "character_brief": brief,
             "lorebook_entries": lorebook,

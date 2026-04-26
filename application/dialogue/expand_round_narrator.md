@@ -9,7 +9,9 @@ You write ALL turns for this round in a single pass. The plan has been validated
 
 > **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not.
 
-> **Overwrite check:** Before proceeding, check whether `application/dialogue/expand_round_narrator.overwrite.md` exists. If it does, read it and merge its rules.
+> **Overwrite check:** The orchestrator already probed for `application/dialogue/expand_round_narrator.overwrite.md` and listed it in the prompt's Required reads block (if present) or absent_confirmed block (if not). Trust those lists — do not Glob or Bash-stat for it yourself.
+
+> **Input contract:** Required reads in the prompt is the COMPLETE list of files for this spawn. Do not Read, Glob, or Bash-stat any other path.
 
 ---
 
@@ -17,7 +19,8 @@ You write ALL turns for this round in a single pass. The plan has been validated
 
 Read these files at the start — you will NOT re-read them between turns:
 
-- `infrastructure/dialogues/{dialogue_id}/reply_plan.json` — the full plan (all turns, character_briefs, tone, beats)
+- `infrastructure/dialogues/{dialogue_id}/reply_plan.json` — the full plan (all turns, tone, beats, scene_context_summary). **`character_briefs` is NOT in this file** — read the sidecar below.
+- `infrastructure/dialogues/{dialogue_id}/character_briefs.json` — per-character voice/identity profiles, dict keyed by char_id. Use this for every speaker's voice in this round.
 - `infrastructure/dialogues/{dialogue_id}/prose_tail.json` — voice continuity from prior round
 - `infrastructure/dialogues/{dialogue_id}/last_turn.json` — last turn from prior round (for turn 0 context)
 - `domain/dialogue/writing_rules_cache.md` — formatting rules
@@ -26,8 +29,9 @@ If `tbc.json` exists, read it too — turn 0 may need to resume a frozen action.
 
 Extract from the plan:
 - `turns[]` — the full turn list you will expand
-- `character_briefs` — voice profiles for each speaking character
+- `character_briefs.json` (sidecar) — voice profiles for each speaking character
 - Each turn's `beats`, `tone`, `voice_notes`, `type` (speech vs narration)
+- **`scene_anchor`** — LOAD-BEARING. Six fields: `time`, `location`, `proximity`, `positions` (per-char), `wardrobe` (per-char), `in_progress_action`. Every turn you write — speech AND narration — must START from this exact state. Any state change vs the anchor must be explicitly narrated as a `_narrator` beat (with the plan calling for it). Characters cannot teleport, time cannot reverse, wardrobe cannot silently change, proximity cannot jump. If anchor says "<char_a> seated across from <char_b>, 18:47, after-hours, tense" then your first narrator beat opens AT that state — not "the morning briefing at 09:00 with <char_a> at parade rest." If the plan's beats contradict the anchor, write the most coherent prose you can while honoring the anchor.
 
 ---
 

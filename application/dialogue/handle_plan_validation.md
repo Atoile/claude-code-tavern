@@ -9,7 +9,9 @@ You are the triage agent that runs when `plan_validation.json` comes back with `
 
 > **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not.
 
-> **Overwrite check:** Before proceeding, check whether `application/dialogue/handle_plan_validation.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
+> **Overwrite check:** The orchestrator already probed for `application/dialogue/handle_plan_validation.overwrite.md` and listed it in the prompt's Required reads block (if present) or absent_confirmed block (if not). Trust those lists — do not Glob or Bash-stat for it yourself.
+
+> **Input contract:** Required reads in the prompt is the COMPLETE list of files for this spawn. The orchestrator pre-resolves which conditional files you need based on the failing check IDs in plan_validation.json — trust the manifest. Do not Read, Glob, or Bash-stat any other path.
 
 ---
 
@@ -42,11 +44,11 @@ The `dialogue_id` is provided in your prompt.
 For every entry in `plan_validation.json.issues`, decide whether it is **critical** or **fixable**.
 
 **Critical** issues require a full replan — the plan's foundation is broken and surgical patches won't recover:
-- Wrong speaker set (speaker not in `character_briefs`, player character included when excluded, turn_order empty)
+- Wrong speaker set (speaker not in `character_briefs.json`, player character included when excluded, turn_order empty)
 - TBC integrity violations that cross-contaminate the round structure (resumer not at index 0, multiple `ends_tbc: true`, `pending_tbc` speaker mismatch)
 - Round protagonist wrong identity (e.g. `_narrator` as protagonist, or protagonist missing from `turn_order`)
 - Cross-character ability leakage (2f2) on a majority of turns — indicates the planner confused who has what
-- Missing or malformed `character_briefs` entries (missing required fields across multiple speakers)
+- (Note: `character_briefs` is no longer authored by the planner; it lives in a sidecar file built by Phase 0. The 2a check that previously demanded the planner populate briefs is obsolete and will not fire.)
 
 **Fixable** issues are local defects that can be patched in place without destabilizing the rest of the plan:
 - Oversized `beats` arrays (trim to weight cap)

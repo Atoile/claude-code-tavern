@@ -9,7 +9,9 @@ You are given a queue item. Execute it completely. Do not modify `infrastructure
 
 > **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not.
 
-> **Overwrite check:** Before proceeding, check whether `application/dialogue/optimize_scenario.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
+> **Overwrite check:** The orchestrator already probed for `application/dialogue/optimize_scenario.overwrite.md` and listed it in the prompt's Required reads block (if present) or absent_confirmed block (if not). Trust those lists — do not Glob or Bash-stat for it yourself.
+
+> **Input contract:** Required reads in the prompt is the COMPLETE list of files for this spawn. Do not Read, Glob, or Bash-stat any other path beyond what's listed there or what the numbered steps below explicitly call out (the participant `data.json` files).
 
 ---
 
@@ -162,26 +164,6 @@ No markdown fences, no trailing commentary. Valid JSON only.
 
 ---
 
-## 7. Write characters.json
+## 7. Signal completion
 
-Write `infrastructure/dialogues/{dialogue_id}/characters.json`:
-
-```json
-{
-  "participants": {
-    "<char_id>": {
-      "id": "<directory id>",
-      "name": "<display name>",
-      "data_path": "<infrastructure/characters/{id}/data.json>"
-    }
-  }
-}
-```
-
-The `id` must be the **directory name** (e.g. `alice-smith`), not the `meta.id` inside `data.json`. The frontend uses directory names to look up characters. Note: do **not** write `leading_id` here — that gets set later when the user picks the leading character in the UI.
-
----
-
-## 8. Signal completion
-
-After writing both output files, your work is done. Queue state is managed by the orchestrator.
+The orchestrator pre-creates the dialogue directory and writes the initial `characters.json` with the participants dict in deterministic Python before spawning you. Your only output is the scenario file at `output_path`. Do NOT mkdir, do NOT write `characters.json`, do NOT touch any other file. Queue state is managed by the orchestrator.

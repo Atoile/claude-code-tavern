@@ -5,7 +5,9 @@
 
 You are given a `dialogue_id`. Execute the condensing pass completely.
 
-> **Overwrite check:** Before proceeding, check whether `application/dialogue/condense_memory.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
+> **Overwrite check:** The orchestrator already probed for `application/dialogue/condense_memory.overwrite.md` and listed it in the prompt's Required reads block (if present) or absent_confirmed block (if not). Trust those lists — do not Glob or Bash-stat for it yourself.
+
+> **Input contract:** Required reads in the prompt is the COMPLETE list of files for this spawn. The condense_cache.json is your single self-contained input — do not Read, Glob, or Bash-stat any other path.
 
 ---
 

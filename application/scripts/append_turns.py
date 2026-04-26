@@ -81,7 +81,6 @@ def main():
 
     # Append to full_chat (unbounded)
     full_chat = load_json(full_chat_path)
-    prev_full_chat_len = len(full_chat)
     full_chat.extend(new_turns)
     new_full_chat_len = len(full_chat)
     write_json(full_chat_path, full_chat)
@@ -121,7 +120,6 @@ def main():
 
     # Smart condense trigger — only condense when there's enough new content to justify it
     condense = False
-    condense_reason = ""
 
     if new_full_chat_len > RECENT_CHAT_TRIM:
         # Check how many turns since last condense
@@ -146,13 +144,10 @@ def main():
 
         if uncovered_gap >= MIN_TURNS_BETWEEN_CONDENSE:
             condense = True
-            condense_reason = f"context gap ({uncovered_gap} uncovered turns — memory through {last_condensed}, recent_chat starts at {new_full_chat_len - RECENT_CHAT_TRIM})"
         elif turns_since_condense >= 20:
             condense = True
-            condense_reason = f"safety cap ({turns_since_condense} turns since last condense)"
         elif new_words >= 500 and turns_since_condense >= MIN_TURNS_BETWEEN_CONDENSE:
             condense = True
-            condense_reason = f"content threshold ({new_words} words, {turns_since_condense} turns)"
 
     # Goal completion — write complete.json and update goals.json
     if dialogue_complete and goal_resolution:

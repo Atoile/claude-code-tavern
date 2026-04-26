@@ -11,7 +11,13 @@ Scenes have **N participants** (currently 2 or 3). Each round, you decide **who 
 
 > **Tool usage:** Always use the **Read** tool to read files, never `cat`, `head`, `tail`, or other shell commands. Bash file reads require manual user confirmation; Read does not.
 
-> **Overwrite check:** Before proceeding, check whether `application/dialogue/generate_reply_plan.overwrite.md` exists. If it does, read it — its contents extend these baseline instructions with additional rules that take precedence where they conflict.
+> **Overwrite check:** The orchestrator already probed for `application/dialogue/generate_reply_plan.overwrite.md` and listed it in the prompt's Required reads block (if present) or absent_confirmed block (if not). Trust those lists — do not Glob or Bash-stat for it yourself.
+
+> **Output discipline — strict:** Your job is two things: read inputs, write `reply_plan.json`. Do NOT narrate your process. No "Now let me read the files...", no "I have everything I need...", no post-write summary like "Plan complete — N turns, here's what was decided...". The orchestrator logs every tool call and the final result on its own. Every output token you spend on commentary is wasted spend. Use tools, write the file, exit.
+
+> **Round metadata — trust the orchestrator:** The prompt contains a `ROUND METADATA` block listing round number, mode, participants, last speaker, TBC state, player character, silence fatigue, and files present. **These are authoritative — do not re-derive them from raw files.** Skip checking `len(reply_history)` to determine round number, skip parsing `characters.json` for `player_id`, skip walking history to count silence fatigue. Spend your reasoning budget on creative decisions (who speaks, beat structure, scene_anchor extraction) instead of meta-state derivation. For 2-character scenes specifically: both participants speak in nearly every round — skip the Tier 1/2/3 evaluation work unless an explicit user_prompt exclusion or genuinely-no-reactive-beat applies.
+
+> **Stale-plan recovery:** The orchestrator runs a per-round cleanup before spawning you that deletes any leftover `reply_plan.json` from prior failed runs. Your first Write should succeed without needing to Read the file first. If you nonetheless hit `<tool_use_error>File has not been read yet</tool_use_error>` (rare), call Read once and Write — silently, no commentary.
 
 ---
 
@@ -210,17 +216,7 @@ Set `round_protagonist` as a top-level field in `reply_plan.json`.
 
 **Use the `Write` tool to write `infrastructure/dialogues/{dialogue_id}/reply_plan.json` directly.** Do NOT shell out to Bash/PowerShell, do NOT pipe through `python -c "..."`, do NOT generate a helper script in `/tmp/` or `application/scripts/`. The plan is a single JSON file — `Write` produces it in one call.
 
-**If the `Write` tool fails with `<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>`:** that means `reply_plan.json` already exists on disk from a prior run (e.g. a previous plan that failed validation and is being replanned). The fix is exactly two steps:
-
-1. Call the `Read` tool on `infrastructure/dialogues/{dialogue_id}/reply_plan.json` to load its current contents.
-2. Call `Write` again with your new plan content. It will succeed and overwrite the prior file.
-
-Do NOT attempt any of these workarounds — they have all failed in past sessions and pollute the repository:
-- `python -c "..."` inline mega-scripts (escape-quote hell on Windows bash)
-- `cat > /tmp/foo.py << 'PYEOF' ...` heredoc tricks (same quoting hell)
-- Writing a helper script into `application/scripts/` (that directory is for committed pipeline code, not throwaway plan-writers — leftover `_tmp_*.py` files have caused stale-content bugs in subsequent runs)
-
-The `Read`-then-`Write` recovery is faster, cleaner, and leaves no pollution. Always use it.
+The orchestrator pre-deletes any stale `reply_plan.json` before spawning you. If `Write` errors with `File has not been read yet`, do a single Read + retry Write silently (no commentary).
 
 Schema for the output JSON object:
 
@@ -252,23 +248,35 @@ Schema for the output JSON object:
   ],
   "scene_context_summary": "1-2 sentence snapshot of the current scene state for prose agents",
   "pending_tbc": null,
-  "character_briefs": {
-    "<char_id>": {
-      "name": "<display name>",
-      "gender": "<from identity.gender>",
-      "height": "<from appearance.height>",
-      "build": "<from appearance.build>",
-      "appearance_summary": "<from appearance.summary — truncate to ~100 words if longer>",
-      "core_traits": ["<from personality.core_traits>"],
-      "emotional_baseline": "<from personality.emotional_baseline>",
-      "quirks": ["<from personality.quirks>"],
-      "voice_description": "<from speech.voice_description>",
-      "speech_patterns": ["<from speech.speech_patterns>"],
-      "vocabulary_level": "<from speech.vocabulary_level>"
-    }
+  "scene_anchor": {
+    "time": "<explicit time-of-day or scene period — extract from last_turn.json verbatim if stated; else best inference from prior round>",
+    "location": "<spatial setting — room/place + load-bearing physical details (lighting, doors, blinds, etc.)>",
+    "proximity": "<character-pair proximity — concrete: 'intimate', 'within reach', '3.9m apart', '<char_a> kneeling at <char_b>'s side', etc.>",
+    "positions": {
+      "<char_id>": "<concrete pose/posture/where-in-room/what-they-hold — e.g. 'seated at the desk, hand on the closed file folder'>"
+    },
+    "wardrobe": {
+      "<char_id>": "<load-bearing wardrobe state — what's worn, what's removed, what's exposed>"
+    },
+    "in_progress_action": "<what's actively happening at the freeze-frame the prior round ended on — the thing this round opens against>"
   }
 }
 ```
+
+> **`character_briefs` is no longer your responsibility.** The orchestrator pre-builds `infrastructure/dialogues/{dialogue_id}/character_briefs.json` in Phase 0 by distilling the per-character context cache files. Do **not** include `character_briefs` in your `reply_plan.json` output — copying that data wastes output tokens. Downstream agents (validator, turn agents) read the sidecar directly.
+
+> **`scene_anchor` is LOAD-BEARING.** This is the non-negotiable carryover from the prior round's end-state. **`scene_state.json` is the canonical persistent record — read it first.** It carries forward time, location, proximity, positions, wardrobe, in_progress_action across rounds; otherwise time/wardrobe details get lost between rounds because last_turn.json only carries what was explicitly mentioned in the prior turn's prose. Validator check `2h_scene_anchor_contradiction` cross-checks the anchor against scene_state + last_turn; disagreement triggers instant replan (critical).
+>
+> **Read-update-write cycle (every round):**
+> 1. **Read `scene_state.json`** if it exists. Schema: `{dialogue_id, version, rounds_processed, current_state: {time, location, proximity, positions, wardrobe, in_progress_action}, last_updated_round}`. The `current_state` block is the authoritative running scene.
+> 2. **Read `last_turn.json`** (the prior round's full prose). Identify any state changes the prose established that aren't yet reflected in `current_state` — e.g., "<char_a> hung her coat on the rack" → `wardrobe.<char_a>` updated; "they crossed to the next room" → `location` updated; "30 minutes later" → `time` updated.
+> 3. **Apply deltas to `current_state`**. Preserve everything not explicitly contradicted by last_turn — the persistent state should accumulate, not reset.
+> 4. **Write the updated `scene_state.json`**. Increment `rounds_processed`, set `last_updated_round` to the new round number.
+> 5. **Mirror `current_state` into the plan's `scene_anchor` field** — they should match exactly.
+>
+> **First reply round (no `scene_state.json` yet):** Build `current_state` from `last_turn.json` (the greeting) + `context_cache.scenario` for fields the greeting didn't explicitly establish. The greeting always wins where it conflicts with scenario defaults. Write the initial `scene_state.json` with `rounds_processed: 1` and `version: 1`. Then mirror into `scene_anchor` and proceed.
+>
+> **Why this matters:** without scene_state, every round's anchor is re-derived from last_turn alone. If round 5's last_turn doesn't mention what time it is or what a character is wearing — because those details weren't load-bearing in that turn's prose — the planner forgets them. scene_state preserves the running truth across rounds.
 
 **Concrete example — a well-formed `reaction` turn:**
 
@@ -317,7 +325,7 @@ Schema for the output JSON object:
 **Field details:**
 
 - `turn_order[i]` must equal `turns[i].speaker` for every `i`.
-- `character_briefs` should contain an entry for **every speaking participant** in this round (not necessarily every participant in the scene). Extract from `context_cache.json` character slices.
+- `character_briefs` is NOT part of your output — it lives in a sidecar file pre-built by Phase 0 (`character_briefs.json`). Do not extract or copy character data into your plan.
 - `rule_triggers` — be precise about conditional rules. Only flag rules that actually apply to the planned events.
 
 ---
@@ -349,7 +357,9 @@ After writing `reply_plan.json`, your work is done. Do **not** modify `infrastru
 - [ ] No reactor's beats describe a state past the TBC freeze point when a TBC is being resumed this round
 - [ ] `user_prompt` direction scoped correctly: explicit character name → that character only; scene-level tone/dynamic → every speaking turn; when ambiguous, treat as scene-level
 - [ ] Rule triggers accurately identify which writing rules apply, with correct conditional logic
-- [ ] `character_briefs` populated for every speaking participant with full fields: name, gender, height, build, appearance_summary, core_traits, emotional_baseline, quirks, voice_description, speech_patterns, vocabulary_level
+- [ ] `character_briefs` is NOT in your output — it's a sidecar file built by Phase 0
+- [ ] **`scene_anchor` is populated** with all six fields (`time`, `location`, `proximity`, `positions`, `wardrobe`, `in_progress_action`). Each field's content is extracted directly from `last_turn.json` (or scenario opening on first round) — no invented details, no fields contradicting prior prose. Every entry in `positions` and `wardrobe` keyed by every participant's `char_id`.
+- [ ] **No planned beat contradicts `scene_anchor`** — no time reversal, no character teleporting from one position to another without narrating the transition, no wardrobe changing without an explicit beat, no proximity jump (e.g. anchor says "intimate" then beats start at "3.9m apart"). If a transition IS narratively required, it MUST appear as an explicit beat in turn 0 BEFORE any state-dependent beat.
 - [ ] Silence fatigue applied — any participant silent 3+ rounds auto-promoted to Tier 2, 5+ rounds auto-promoted to Tier 1
 - [ ] **Player exclusion (when `player_id` is set):** if `player_id` is the most recent speaker, they do NOT appear in `turn_order` or `turns[]`
 - [ ] **User_prompt narrowing is placement-only, not exclusion:** if `user_prompt` named one character (e.g. `"Rosa's turn: ..."`, `"Alice does X"`), that character is Tier 1 + first in order, but every **other** participant was evaluated against Tier 1/2/3 normally. Specifically: if the named character's turn ends on a physical event landing on another participant's body (touch, contact, strike, gesture toward, addressed-by-name in dialogue), that other participant qualifies as Tier 1 "physically engaged" or "directly addressed" and MUST be in `turn_order`. A single-speaker `turn_order` is correct only when (a) `user_prompt` explicitly excludes others (`"Rosa-only"`, `"other characters stay silent"`), or (b) no other participant has a genuine reactive beat available.
