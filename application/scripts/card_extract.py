@@ -9,21 +9,24 @@ Produces:
     <output_dir>/avatar.png    — PNG with tEXt metadata stripped (image only)
 """
 
+from __future__ import annotations
+
 import struct
 import base64
 import json
 import sys
 import os
+from typing import Any, cast
 
 
-def read_png_chunks(path):
+def read_png_chunks(path: str) -> tuple[bytes, list[tuple[bytes, bytes, bytes, bytes]]]:
     """Read all chunks from a PNG file."""
     with open(path, "rb") as f:
         signature = f.read(8)
         if signature != b"\x89PNG\r\n\x1a\n":
             raise ValueError(f"Not a valid PNG file: {path}")
 
-        chunks = []
+        chunks: list[tuple[bytes, bytes, bytes, bytes]] = []
         while True:
             raw_length = f.read(4)
             if len(raw_length) < 4:
@@ -36,21 +39,25 @@ def read_png_chunks(path):
         return signature, chunks
 
 
-def extract_chara_data(chunks):
+def extract_chara_data(chunks: list[tuple[bytes, bytes, bytes, bytes]]) -> dict[str, Any]:
     """Extract and decode the 'chara' tEXt chunk."""
-    for chunk_type, data, crc, raw_length in chunks:
+    for chunk_type, data, _crc, _raw_length in chunks:
         if chunk_type == b"tEXt":
             null_idx = data.index(b"\x00")
             key = data[:null_idx].decode("latin-1")
             if key == "chara":
                 value = data[null_idx + 1 :].decode("latin-1")
                 decoded = base64.b64decode(value)
-                parsed = json.loads(decoded)
+                parsed: dict[str, Any] = cast(dict[str, Any], json.loads(decoded))
                 return parsed
     raise ValueError("No 'chara' tEXt chunk found in PNG")
 
 
-def write_clean_png(signature, chunks, output_path):
+def write_clean_png(
+    signature: bytes,
+    chunks: list[tuple[bytes, bytes, bytes, bytes]],
+    output_path: str,
+) -> None:
     """Write PNG without tEXt chunks (strip metadata, keep image data)."""
     with open(output_path, "wb") as f:
         f.write(signature)
@@ -63,19 +70,23 @@ def write_clean_png(signature, chunks, output_path):
             f.write(crc)
 
 
-def normalize_card_data(raw):
+def normalize_card_data(raw: dict[str, Any]) -> tuple[dict[str, Any], str]:
     """Normalize v1/v2 card formats to a consistent structure."""
     # v2 has spec/spec_version at top level, data nested
     if "spec" in raw and "data" in raw:
-        return raw["data"], raw.get("spec_version", "unknown")
+        data_v2: dict[str, Any] = cast(dict[str, Any], raw["data"])
+        spec_version_any: Any = raw.get("spec_version", "unknown")
+        spec_version = spec_version_any if isinstance(spec_version_any, str) else "unknown"
+        return data_v2, spec_version
     # v1 or flat format — data is at top level or nested
     if "data" in raw:
-        return raw["data"], "1.0"
+        data_v1: dict[str, Any] = cast(dict[str, Any], raw["data"])
+        return data_v1, "1.0"
     # Completely flat
     return raw, "unknown"
 
 
-def main():
+def main() -> None:
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} <input_png> <output_dir>")
         sys.exit(1)
@@ -97,7 +108,7 @@ def main():
     card_data, spec_version = normalize_card_data(raw_data)
 
     # Save legacy (full original extracted data)
-    legacy = {
+    legacy: dict[str, Any] = {
         "source_file": os.path.basename(input_png),
         "spec_version": spec_version,
         "raw": card_data,
@@ -114,9 +125,11 @@ def main():
 
     # Print summary for Claude Code to read
     name = card_data.get("name", "Unknown")
-    desc_len = len(card_data.get("description", ""))
+    desc_any: Any = card_data.get("description", "")
+    desc_len = len(desc_any) if isinstance(desc_any, str) else 0
     has_book = "character_book" in card_data
-    greeting_count = len(card_data.get("alternate_greetings", []))
+    greetings_any: Any = card_data.get("alternate_greetings", [])
+    greeting_count = len(cast(list[Any], greetings_any)) if isinstance(greetings_any, list) else 0
     print(f"\nCharacter: {name}")
     print(f"Description length: {desc_len} chars")
     print(f"Has lorebook: {has_book}")

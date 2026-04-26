@@ -18,28 +18,31 @@ Turns file format (legacy):
 - Deletes <turns-file> on success
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
+from typing import Any, cast
 
 RECENT_CHAT_TRIM = 30
 HISTORY_MAX_ROUNDS = 5
 
 
-def load_json(path):
+def load_json(path: str) -> Any:
     if not os.path.exists(path):
         return []
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def write_json(path, data):
+def write_json(path: str, data: Any) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dialogue-id", required=True)
     parser.add_argument("--turns-file", required=True)
@@ -57,16 +60,26 @@ def main():
         sys.exit(1)
 
     with open(turns_file, "r", encoding="utf-8") as f:
-        payload = json.load(f)
+        payload: Any = json.load(f)
 
     # Support both new { "turns": [...], "turn_state": {...} } and legacy [...] formats
+    new_turns: list[dict[str, Any]]
+    turn_state: Any
+    dialogue_complete: bool
+    goal_resolution: dict[str, Any] | None
     if isinstance(payload, dict):
-        new_turns = payload.get("turns", [])
-        turn_state = payload.get("turn_state")
-        dialogue_complete = payload.get("dialogue_complete", False)
-        goal_resolution = payload.get("goal_resolution")
+        payload_d: dict[str, Any] = cast(dict[str, Any], payload)
+        new_turns = cast(list[dict[str, Any]], payload_d.get("turns", []) or [])
+        turn_state = payload_d.get("turn_state")
+        dc_any: Any = payload_d.get("dialogue_complete", False)
+        dialogue_complete = bool(dc_any)
+        gr_any: Any = payload_d.get("goal_resolution")
+        goal_resolution = cast(dict[str, Any], gr_any) if isinstance(gr_any, dict) else None
     else:
-        new_turns = payload if isinstance(payload, list) else [payload]
+        if isinstance(payload, list):
+            new_turns = cast(list[dict[str, Any]], payload)
+        else:
+            new_turns = [cast(dict[str, Any], payload)]
         turn_state = None
         dialogue_complete = False
         goal_resolution = None
@@ -80,13 +93,13 @@ def main():
         new_turns[0]["_prompt"] = args.user_prompt
 
     # Append to full_chat (unbounded)
-    full_chat = load_json(full_chat_path)
+    full_chat: list[dict[str, Any]] = cast(list[dict[str, Any]], load_json(full_chat_path))
     full_chat.extend(new_turns)
     new_full_chat_len = len(full_chat)
     write_json(full_chat_path, full_chat)
 
     # Append to recent_chat and trim
-    recent_chat = load_json(recent_chat_path)
+    recent_chat: list[dict[str, Any]] = cast(list[dict[str, Any]], load_json(recent_chat_path))
     recent_chat.extend(new_turns)
     recent_chat = recent_chat[-RECENT_CHAT_TRIM:]
     write_json(recent_chat_path, recent_chat)
@@ -109,9 +122,9 @@ def main():
     # turn, scene_context only on the first entry of a round.
     history_path = os.path.join(dialogue_dir, "reply_history.json")
     if not os.path.exists(history_path) and new_turns:
-        seed = []
+        seed: list[dict[str, Any]] = []
         for idx, t in enumerate(new_turns):
-            entry = {"speaker": t["speaker"], "summary": t["text"]}
+            entry: dict[str, Any] = {"speaker": t["speaker"], "summary": t["text"]}
             if idx == 0:
                 entry["scene_context"] = ""
             seed.append(entry)
@@ -127,13 +140,18 @@ def main():
         last_condensed = 0
         if os.path.exists(memory_path):
             with open(memory_path, "r", encoding="utf-8") as f:
-                mem = json.load(f)
-                last_condensed = mem.get("condensed_through", 0)
+                mem: dict[str, Any] = cast(dict[str, Any], json.load(f))
+                lc_any: Any = mem.get("condensed_through", 0)
+                last_condensed = lc_any if isinstance(lc_any, int) else 0
 
         turns_since_condense = new_full_chat_len - last_condensed
 
         # Count word content in the new turns being appended
-        new_words = sum(len(t.get("text", "").split()) for t in new_turns)
+        def _word_count(t: dict[str, Any]) -> int:
+            text_any: Any = t.get("text", "")
+            return len(text_any.split()) if isinstance(text_any, str) else 0
+
+        new_words = sum(_word_count(t) for t in new_turns)
 
         # Minimum 10 turns between condensations — baseline for all triggers
         MIN_TURNS_BETWEEN_CONDENSE = 10
@@ -154,7 +172,7 @@ def main():
         from datetime import datetime, timezone
 
         complete_path = os.path.join(dialogue_dir, "complete.json")
-        complete_data = {
+        complete_data: dict[str, Any] = {
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "goal_id": goal_resolution.get("goal_id"),
             "outcome": goal_resolution.get("outcome"),
@@ -165,8 +183,8 @@ def main():
         goals_path = os.path.join(dialogue_dir, "goals.json")
         if os.path.exists(goals_path):
             with open(goals_path, "r", encoding="utf-8") as f:
-                goals_data = json.load(f)
-            for goal in goals_data.get("goals", []):
+                goals_data: dict[str, Any] = cast(dict[str, Any], json.load(f))
+            for goal in cast(list[dict[str, Any]], goals_data.get("goals", []) or []):
                 if goal.get("id") == goal_resolution.get("goal_id"):
                     goal["status"] = "resolved"
                     goal["resolved_as"] = goal_resolution.get("outcome")

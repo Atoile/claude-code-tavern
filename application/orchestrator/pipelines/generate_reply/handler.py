@@ -12,7 +12,6 @@ to restart Phase 1 or re-run Phase 1b.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from ...env import TavernConfig

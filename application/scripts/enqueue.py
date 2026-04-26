@@ -21,28 +21,31 @@ written back atomically (temp file + rename) so concurrent readers never see
 a partial write.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
 import tempfile
 import uuid
+from typing import Any, cast
 
 QUEUE_PATH = os.path.join("infrastructure", "queue", "queue.json")
 
 
-def load_queue():
+def load_queue() -> list[Any]:
     if not os.path.exists(QUEUE_PATH):
         return []
     with open(QUEUE_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        data: Any = json.load(f)
     if not isinstance(data, list):
         print(f"ERROR: {QUEUE_PATH} is not a JSON array", file=sys.stderr)
         sys.exit(1)
-    return data
+    return cast(list[Any], data)
 
 
-def write_queue_atomic(data):
+def write_queue_atomic(data: list[Any]) -> None:
     queue_dir = os.path.dirname(QUEUE_PATH)
     os.makedirs(queue_dir, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=queue_dir, prefix=".queue.", suffix=".tmp")
@@ -56,19 +59,20 @@ def write_queue_atomic(data):
         raise
 
 
-def normalize_task(task):
+def normalize_task(task: Any) -> dict[str, Any]:
     if not isinstance(task, dict):
         raise ValueError(f"task must be a JSON object, got {type(task).__name__}")
-    if "type" not in task:
+    t: dict[str, Any] = cast(dict[str, Any], task)
+    if "type" not in t:
         raise ValueError("task missing required field: type")
-    task.setdefault("id", str(uuid.uuid4()))
-    task.setdefault("status", "pending")
-    task.setdefault("parallel", False)
-    task.setdefault("depends_on", [])
-    return task
+    t.setdefault("id", str(uuid.uuid4()))
+    t.setdefault("status", "pending")
+    t.setdefault("parallel", False)
+    t.setdefault("depends_on", [])
+    return t
 
 
-def load_input(args):
+def load_input(args: argparse.Namespace) -> list[Any]:
     if args.stdin:
         raw = sys.stdin.read()
     elif args.task_json is not None:
@@ -80,19 +84,19 @@ def load_input(args):
         print("ERROR: provide --task-file, --task-json, or --stdin", file=sys.stderr)
         sys.exit(1)
     try:
-        data = json.loads(raw)
+        data: Any = json.loads(raw)
     except json.JSONDecodeError as e:
         print(f"ERROR: invalid JSON input: {e}", file=sys.stderr)
         sys.exit(1)
     if isinstance(data, dict):
-        return [data]
+        return [cast(dict[str, Any], data)]
     if isinstance(data, list):
-        return data
+        return cast(list[Any], data)
     print(f"ERROR: input must be an object or array, got {type(data).__name__}", file=sys.stderr)
     sys.exit(1)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--task-file", help="Path to JSON file with task object or array")
@@ -102,7 +106,11 @@ def main():
 
     new_tasks_raw = load_input(args)
     try:
-        new_tasks = [normalize_task(dict(t)) for t in new_tasks_raw]
+        new_tasks: list[dict[str, Any]] = []
+        for t in new_tasks_raw:
+            if not isinstance(t, dict):
+                raise ValueError(f"task must be a JSON object, got {type(t).__name__}")
+            new_tasks.append(normalize_task(dict(cast(dict[str, Any], t))))
     except ValueError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
@@ -111,7 +119,7 @@ def main():
     queue.extend(new_tasks)
     write_queue_atomic(queue)
 
-    ids = [t["id"] for t in new_tasks]
+    ids = [str(t["id"]) for t in new_tasks]
     print(f"OK: appended {len(new_tasks)} task(s) to {QUEUE_PATH} | ids: {', '.join(ids)}")
 
 

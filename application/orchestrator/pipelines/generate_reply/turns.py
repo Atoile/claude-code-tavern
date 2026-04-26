@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
 from ...env import TavernConfig
@@ -74,7 +73,7 @@ async def _run_narrator(dialogue_id: str, item: dict[str, Any], cfg: TavernConfi
         "",
         "OUTPUT CONTRACT — read carefully:",
         f"- Write ONE file per plan turn: infrastructure/dialogues/{dialogue_id}/reply_turn_0.json,",
-        f"  reply_turn_1.json, ..., reply_turn_{{N-1}}.json (where N = len(reply_plan.turns)).",
+        "  reply_turn_1.json, ..., reply_turn_{N-1}.json (where N = len(reply_plan.turns)).",
         "- DO NOT write pending_turns.json. The orchestrator runs merge_reply.py after you finish",
         "  to assemble pending_turns.json from your per-turn files.",
         "- Do not skip turns. Every entry in reply_plan.turns[] gets a matching reply_turn_{i}.json.",

@@ -10,7 +10,7 @@ Both branches use the model selected by cfg.planner (TAVERN_PLANNER env).
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from ...env import TavernConfig
 from ...prompts import REPO, build_prompt, build_required_reads, per_character_context_caches
@@ -29,12 +29,16 @@ def _last_character_speaker(dialogue_id: str) -> str | None:
     history_path = dlg / "reply_history.json"
     if history_path.exists():
         try:
-            history = json.loads(history_path.read_text(encoding="utf-8")) or []
+            history_raw: Any = json.loads(history_path.read_text(encoding="utf-8")) or []
         except (json.JSONDecodeError, OSError):
-            history = []
+            history_raw = []
+        history: list[Any] = cast(list[Any], history_raw) if isinstance(history_raw, list) else []
         for entry in reversed(history):
-            speaker = entry.get("speaker")
-            if speaker and speaker != "_narrator":
+            if not isinstance(entry, dict):
+                continue
+            entry_d: dict[str, Any] = cast(dict[str, Any], entry)
+            speaker: Any = entry_d.get("speaker")
+            if isinstance(speaker, str) and speaker and speaker != "_narrator":
                 return speaker
 
     # Fallback: last_turn.json (greeting / opening turn that hasn't been
@@ -42,16 +46,19 @@ def _last_character_speaker(dialogue_id: str) -> str | None:
     last_turn_path = dlg / "last_turn.json"
     if last_turn_path.exists():
         try:
-            last_turn = json.loads(last_turn_path.read_text(encoding="utf-8")) or {}
+            last_turn_raw: Any = json.loads(last_turn_path.read_text(encoding="utf-8")) or {}
+            last_turn: dict[str, Any] = (
+                cast(dict[str, Any], last_turn_raw) if isinstance(last_turn_raw, dict) else {}
+            )
             speaker = last_turn.get("speaker")
-            if speaker and speaker != "_narrator":
+            if isinstance(speaker, str) and speaker and speaker != "_narrator":
                 return speaker
         except (json.JSONDecodeError, OSError):
             pass
     return None
 
 
-def _round_metadata(dialogue_id: str, cfg: TavernConfig) -> dict:
+def _round_metadata(dialogue_id: str, cfg: TavernConfig) -> dict[str, Any]:
     """Pre-compute meta-state the planner would otherwise re-derive.
 
     Inlined into the planner prompt so the agent skips Tier-1/Tier-2/Tier-3 etc.
@@ -61,24 +68,35 @@ def _round_metadata(dialogue_id: str, cfg: TavernConfig) -> dict:
     dlg = REPO / "infrastructure" / "dialogues" / dialogue_id
 
     # reply_history (may be missing or empty)
-    history: list[dict] = []
+    history: list[dict[str, Any]] = []
     history_path = dlg / "reply_history.json"
     if history_path.exists():
         try:
-            history = json.loads(history_path.read_text(encoding="utf-8")) or []
+            history_raw: Any = json.loads(history_path.read_text(encoding="utf-8")) or []
         except (json.JSONDecodeError, OSError):
-            history = []
+            history_raw = []
+        if isinstance(history_raw, list):
+            for e in cast(list[Any], history_raw):
+                if isinstance(e, dict):
+                    history.append(cast(dict[str, Any], e))
 
     # characters.json — required (frontend always writes it before queuing)
-    chars: dict = {}
+    chars: dict[str, Any] = {}
     chars_path = dlg / "characters.json"
     if chars_path.exists():
         try:
-            chars = json.loads(chars_path.read_text(encoding="utf-8")) or {}
+            chars_raw: Any = json.loads(chars_path.read_text(encoding="utf-8")) or {}
+            if isinstance(chars_raw, dict):
+                chars = cast(dict[str, Any], chars_raw)
         except (json.JSONDecodeError, OSError):
             pass
-    participants = sorted((chars.get("participants") or {}).keys())
-    player_id = chars.get("player_id")
+    participants_raw: Any = chars.get("participants") or {}
+    if isinstance(participants_raw, dict):
+        participants = sorted(cast(dict[str, Any], participants_raw).keys())
+    else:
+        participants = []
+    player_id_raw: Any = chars.get("player_id")
+    player_id: str | None = player_id_raw if isinstance(player_id_raw, str) else None
 
     # tbc state
     tbc_active = (dlg / "tbc.json").exists()
@@ -95,10 +113,10 @@ def _round_metadata(dialogue_id: str, cfg: TavernConfig) -> dict:
             continue
         silent = 0
         for entry in reversed(history):
-            spk = entry.get("speaker")
+            spk: Any = entry.get("speaker")
             if spk == char_id:
                 break
-            if spk and spk != "_narrator":
+            if isinstance(spk, str) and spk and spk != "_narrator":
                 silent += 1
         fatigue[char_id] = silent
 
@@ -127,22 +145,25 @@ def _round_metadata(dialogue_id: str, cfg: TavernConfig) -> dict:
     }
 
 
-def _format_round_metadata(meta: dict) -> list[str]:
+def _format_round_metadata(meta: dict[str, Any]) -> list[str]:
     """Format _round_metadata() output as the planner-prompt block."""
+    participants_list = cast(list[str], meta['participants'])
+    files_present_list = cast(list[str], meta['files_present'])
     lines = [
         "ROUND METADATA (orchestrator-computed — trust these, do not re-derive):",
         f"- Round number: {meta['round_number']}"
         + (" (first reply round)" if meta['is_first_reply_round'] else ""),
         f"- Mode: TAVERN_CHAT_MODE={meta['chat_mode']}, TAVERN_VERBATIM={meta['verbatim_mode']}",
-        f"- Participants: {', '.join(meta['participants']) or '<none>'}",
+        f"- Participants: {', '.join(participants_list) or '<none>'}",
         f"- Player character: {meta['player_id'] or 'none (director mode)'}",
         f"- Most recent character speaker: {meta['last_character_speaker']}",
         f"- TBC state: {'active (resume required from tbc.json)' if meta['tbc_active'] else 'none pending'}",
     ]
-    if meta["silence_fatigue_rounds"]:
-        sf = ", ".join(f"{k}={v}" for k, v in meta["silence_fatigue_rounds"].items())
+    fatigue_map = cast(dict[str, int], meta["silence_fatigue_rounds"])
+    if fatigue_map:
+        sf = ", ".join(f"{k}={v}" for k, v in fatigue_map.items())
         lines.append(f"- Silence fatigue (rounds since last spoke): {sf}")
-    lines.append(f"- Files present: {', '.join(meta['files_present']) or '<none>'}")
+    lines.append(f"- Files present: {', '.join(files_present_list) or '<none>'}")
     return lines
 
 

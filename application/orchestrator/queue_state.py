@@ -10,7 +10,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REPO = Path(__file__).resolve().parents[2]
 QUEUE_PATH = REPO / "infrastructure" / "queue" / "queue.json"
@@ -22,7 +22,7 @@ def read_queue() -> list[dict[str, Any]]:
     text = QUEUE_PATH.read_text(encoding="utf-8")
     if not text.strip():
         return []
-    return json.loads(text)
+    return cast(list[dict[str, Any]], json.loads(text))
 
 
 def _write_atomic(items: list[dict[str, Any]]) -> None:
@@ -48,7 +48,7 @@ def pick_next(items: list[dict[str, Any]]) -> dict[str, Any] | None:
     for it in items:
         if it.get("status") != "pending":
             continue
-        deps = it.get("depends_on") or []
+        deps: list[Any] = cast(list[Any], it.get("depends_on") or [])
         if all(dep in done_ids for dep in deps):
             return it
     return None

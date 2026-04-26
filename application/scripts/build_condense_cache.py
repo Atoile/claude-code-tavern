@@ -16,20 +16,23 @@ Writes:
     - infrastructure/dialogues/<id>/condense_cache.json
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
+from typing import Any, cast
 
 
-def load_json(path):
+def load_json(path: str) -> Any:
     if not os.path.exists(path):
         return None
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dialogue-id", required=True)
     args = parser.parse_args()
@@ -40,11 +43,16 @@ def main():
         sys.exit(1)
 
     # Full chat — extract batch
-    full_chat = load_json(os.path.join(dialogue_dir, "full_chat.json")) or []
-    memory = load_json(os.path.join(dialogue_dir, "memory.json"))
-    condensed_through = 0
+    full_chat_raw: Any = load_json(os.path.join(dialogue_dir, "full_chat.json")) or []
+    full_chat: list[Any] = cast(list[Any], full_chat_raw) if isinstance(full_chat_raw, list) else []
+    memory_raw: Any = load_json(os.path.join(dialogue_dir, "memory.json"))
+    memory: dict[str, Any] | None = (
+        cast(dict[str, Any], memory_raw) if isinstance(memory_raw, dict) else None
+    )
+    condensed_through: int = 0
     if memory:
-        condensed_through = memory.get("condensed_through", 0)
+        ct: Any = memory.get("condensed_through", 0)
+        condensed_through = ct if isinstance(ct, int) else 0
 
     batch = full_chat[condensed_through:]
     if not batch:
@@ -52,41 +60,65 @@ def main():
         sys.exit(0)
 
     # Recent chat
-    recent_chat = load_json(os.path.join(dialogue_dir, "recent_chat.json")) or []
+    recent_chat_raw: Any = load_json(os.path.join(dialogue_dir, "recent_chat.json")) or []
+    recent_chat: list[Any] = (
+        cast(list[Any], recent_chat_raw) if isinstance(recent_chat_raw, list) else []
+    )
 
     # Characters
-    characters_data = load_json(os.path.join(dialogue_dir, "characters.json")) or {}
-    participants = characters_data.get("participants", {})
+    characters_raw: Any = load_json(os.path.join(dialogue_dir, "characters.json")) or {}
+    characters_data: dict[str, Any] = (
+        cast(dict[str, Any], characters_raw) if isinstance(characters_raw, dict) else {}
+    )
+    participants_raw: Any = characters_data.get("participants", {})
+    participants: dict[str, Any] = (
+        cast(dict[str, Any], participants_raw) if isinstance(participants_raw, dict) else {}
+    )
 
     # Scenario
-    scenario = load_json(os.path.join(dialogue_dir, "scenario.json"))
-    scenario_summary = None
-    if scenario:
-        leading_id = characters_data.get("leading_id")
-        sp = scenario.get("participants", {})
-        if leading_id and leading_id in sp:
-            scenario_summary = sp[leading_id].get("scenario")
+    scenario_raw: Any = load_json(os.path.join(dialogue_dir, "scenario.json"))
+    scenario_summary: Any = None
+    if isinstance(scenario_raw, dict):
+        scenario: dict[str, Any] = cast(dict[str, Any], scenario_raw)
+        leading_id: Any = characters_data.get("leading_id")
+        sp_raw: Any = scenario.get("participants", {})
+        sp: dict[str, Any] = cast(dict[str, Any], sp_raw) if isinstance(sp_raw, dict) else {}
+        if isinstance(leading_id, str) and leading_id in sp:
+            entry: Any = sp[leading_id]
+            if isinstance(entry, dict):
+                scenario_summary = cast(dict[str, Any], entry).get("scenario")
         elif sp:
-            scenario_summary = next(iter(sp.values()), {}).get("scenario")
+            first: Any = next(iter(sp.values()), cast(dict[str, Any], {}))
+            if isinstance(first, dict):
+                scenario_summary = cast(dict[str, Any], first).get("scenario")
 
     # Character identity/personality from data.json
-    char_profiles = {}
-    for char_id, pdata in participants.items():
-        data_path = pdata.get("data_path")
-        if not data_path:
+    char_profiles: dict[str, dict[str, Any]] = {}
+    for char_id, pdata_raw in participants.items():
+        if not isinstance(pdata_raw, dict):
             continue
-        char_data = load_json(data_path)
-        if not char_data:
+        pdata: dict[str, Any] = cast(dict[str, Any], pdata_raw)
+        data_path: Any = pdata.get("data_path")
+        if not isinstance(data_path, str) or not data_path:
             continue
-        personality = char_data.get("personality", {})
+        char_data_raw: Any = load_json(data_path)
+        if not isinstance(char_data_raw, dict):
+            continue
+        char_data: dict[str, Any] = cast(dict[str, Any], char_data_raw)
+        personality_raw: Any = char_data.get("personality", {})
+        personality: dict[str, Any] = (
+            cast(dict[str, Any], personality_raw) if isinstance(personality_raw, dict) else {}
+        )
+        meta_raw: Any = char_data.get("meta", {})
+        meta: dict[str, Any] = cast(dict[str, Any], meta_raw) if isinstance(meta_raw, dict) else {}
         char_profiles[char_id] = {
-            "name": char_data.get("meta", {}).get("name", char_id),
+            "name": meta.get("name", char_id),
             "core_traits": personality.get("core_traits", []),
             "emotional_baseline": personality.get("emotional_baseline", ""),
         }
 
     # Build cache
-    cache = {
+    cache: dict[str, Any] = {
         "dialogue_id": args.dialogue_id,
         "full_chat_len": len(full_chat),
         "condensed_through": condensed_through,

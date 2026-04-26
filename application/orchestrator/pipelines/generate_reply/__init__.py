@@ -11,7 +11,7 @@ from __future__ import annotations
 import glob
 import json
 import os
-from typing import Any
+from typing import Any, cast
 
 from ...env import TavernConfig
 from ...prompts import REPO
@@ -109,28 +109,42 @@ def _detect_critical(verdict: dict[str, Any], dialogue_id: str) -> tuple[bool, s
     Returns (is_critical, reason). On True, the orchestrator deletes the plan
     and replans immediately. On False, the handler agent decides per-issue.
     """
-    issues = verdict.get("issues") or []
-    errors = [i for i in issues if i.get("severity") == "error"]
+    issues_raw: Any = verdict.get("issues") or []
+    issues: list[dict[str, Any]] = []
+    if isinstance(issues_raw, list):
+        for it in cast(list[Any], issues_raw):
+            if isinstance(it, dict):
+                issues.append(cast(dict[str, Any], it))
+    errors: list[dict[str, Any]] = [i for i in issues if i.get("severity") == "error"]
     if not errors:
         return False, ""
 
     # Pattern 1: any unconditionally-critical check ID.
     for issue in errors:
-        check = issue.get("check") or ""
+        check_raw: Any = issue.get("check") or ""
+        check: str = check_raw if isinstance(check_raw, str) else ""
         if check in _UNCONDITIONAL_CRITICAL_CHECKS:
-            spk = issue.get("speaker") or "?"
+            spk_raw: Any = issue.get("speaker") or "?"
+            spk: str = spk_raw if isinstance(spk_raw, str) else "?"
             return True, f"{check} on {spk} — unconditionally critical"
 
     # Pattern 2: 2f2 (cross-character ability leakage) on >50% of turns.
-    f2_speakers = {i.get("speaker") for i in errors if i.get("check") == "2f2"}
+    f2_speakers: set[Any] = {i.get("speaker") for i in errors if i.get("check") == "2f2"}
     if f2_speakers:
         plan_path = REPO / "infrastructure" / "dialogues" / dialogue_id / "reply_plan.json"
         try:
-            plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
-            total = len(plan_data.get("turns") or [])
+            plan_data_raw: Any = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan_data: dict[str, Any] = (
+                cast(dict[str, Any], plan_data_raw) if isinstance(plan_data_raw, dict) else {}
+            )
+            plan_turns_raw: Any = plan_data.get("turns") or []
+            plan_turns_list: list[Any] = (
+                cast(list[Any], plan_turns_raw) if isinstance(plan_turns_raw, list) else []
+            )
+            total = len(plan_turns_list)
             affected = sum(
-                1 for t in plan_data.get("turns") or []
-                if t.get("speaker") in f2_speakers
+                1 for t in plan_turns_list
+                if isinstance(t, dict) and cast(dict[str, Any], t).get("speaker") in f2_speakers
             )
             if total > 0 and affected * 2 > total:
                 return True, f"2f2 leakage on {affected}/{total} turns (majority)"

@@ -30,15 +30,18 @@ count as their own token; contractions ("she's") count as one word. Punctuation
 attached to a word is part of that word token.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
+from typing import Any, cast
 
 # Standard mode
 BEAT_WORD_CAP_STANDARD = 25
 TONE_WORD_CAP = 40
-WEIGHT_CAPS = {
+WEIGHT_CAPS: dict[str, list[int]] = {
     "reaction":   [1, 2],
     "action":     [2, 3],
     "inflection": [3, 4],
@@ -47,34 +50,38 @@ WEIGHT_CAPS = {
 
 # Narrator mode
 BEAT_WORD_CAP_NARRATOR = 120
-TYPE_CAPS_NARRATOR = {
+TYPE_CAPS_NARRATOR: dict[str, list[int]] = {
     "speech":    [1, 3],
     "narration": [1, 3],
 }
 
 
-def count_words(text):
+def count_words(text: Any) -> int:
     if not isinstance(text, str):
         return 0
     return len(text.split())
 
 
-def check_plan(plan):
+def check_plan(plan: dict[str, Any]) -> dict[str, Any]:
     narrator_mode = plan.get("mode") == "narrator"
     beat_word_cap = BEAT_WORD_CAP_NARRATOR if narrator_mode else BEAT_WORD_CAP_STANDARD
 
-    turns_report = []
-    violations = []
+    turns_report: list[dict[str, Any]] = []
+    violations: list[dict[str, Any]] = []
 
-    for i, turn in enumerate(plan.get("turns", [])):
+    for i, turn_any in enumerate(cast(list[Any], plan.get("turns", []) or [])):
+        turn: dict[str, Any] = cast(dict[str, Any], turn_any) if isinstance(turn_any, dict) else {}
         speaker = turn.get("speaker", "?")
-        beats = turn.get("beats", [])
+        beats: list[Any] = cast(list[Any], turn.get("beats", []) or [])
         tone = turn.get("tone", "")
         beat_count = len(beats)
         beat_count_ok = True
 
+        weight: Any
+        weight_cap: list[int] | None
         if narrator_mode:
-            turn_type = turn.get("type", "?")
+            turn_type_any: Any = turn.get("type", "?")
+            turn_type = turn_type_any if isinstance(turn_type_any, str) else "?"
             type_cap = TYPE_CAPS_NARRATOR.get(turn_type)
             weight = turn_type  # use type as label for reporting
             weight_cap = type_cap
@@ -95,8 +102,9 @@ def check_plan(plan):
                         ),
                     })
         else:
-            weight = turn.get("weight", "?")
-            weight_cap = WEIGHT_CAPS.get(weight)
+            weight_any: Any = turn.get("weight", "?")
+            weight = weight_any if isinstance(weight_any, str) else "?"
+            weight_cap = WEIGHT_CAPS.get(weight) if isinstance(weight, str) else None
             if weight_cap is not None:
                 lo, hi = weight_cap
                 beat_count_ok = lo <= beat_count <= hi
@@ -114,7 +122,7 @@ def check_plan(plan):
                         ),
                     })
 
-        beats_report = []
+        beats_report: list[dict[str, Any]] = []
         for bi, beat in enumerate(beats, start=1):
             wc = count_words(beat)
             over = wc > beat_word_cap
@@ -170,7 +178,7 @@ def check_plan(plan):
             "tone_text": tone,
         })
 
-    summary = {
+    summary: dict[str, Any] = {
         "mode": "narrator" if narrator_mode else "standard",
         "total_turns": len(turns_report),
         "beat_oversized_count": sum(1 for v in violations if v["kind"] == "beat_oversized"),
@@ -179,7 +187,7 @@ def check_plan(plan):
         "pass": len(violations) == 0,
     }
 
-    rules = {
+    rules: dict[str, Any] = {
         "mode": "narrator" if narrator_mode else "standard",
         "beat_word_cap": beat_word_cap,
         "tone_word_cap": TONE_WORD_CAP,
@@ -198,7 +206,7 @@ def check_plan(plan):
     }
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--dialogue-id")
@@ -221,7 +229,7 @@ def main():
         sys.exit(2)
 
     with open(plan_path, "r", encoding="utf-8") as f:
-        plan = json.load(f)
+        plan: dict[str, Any] = cast(dict[str, Any], json.load(f))
 
     report = check_plan(plan)
 
@@ -232,7 +240,7 @@ def main():
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
-    s = report["summary"]
+    s: dict[str, Any] = cast(dict[str, Any], report["summary"])
     status = "PASS" if s["pass"] else "FAIL"
     print(
         f"{status} [{s['mode']}]: {output_path} | "
@@ -243,7 +251,7 @@ def main():
     )
 
     if not s["pass"]:
-        for v in report["violations"]:
+        for v in cast(list[dict[str, Any]], report["violations"]):
             print(f"  - {v['detail']}")
 
 

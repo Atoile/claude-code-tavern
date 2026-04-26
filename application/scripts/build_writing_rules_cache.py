@@ -9,6 +9,8 @@ Usage:
     python application/scripts/build_writing_rules_cache.py
 """
 
+from __future__ import annotations
+
 import os
 import sys
 
@@ -19,7 +21,7 @@ SOURCES = [
 CACHE = "domain/dialogue/writing_rules_cache.md"
 
 
-def main():
+def main() -> None:
     existing_sources = [s for s in SOURCES if os.path.exists(s)]
     if not existing_sources:
         print("ERROR: no writing_rules source files found", file=sys.stderr)
@@ -32,7 +34,7 @@ def main():
         print("OK: writing_rules_cache.md is up to date")
         return
 
-    parts = []
+    parts: list[str] = []
     for path in SOURCES:
         if not os.path.exists(path):
             continue

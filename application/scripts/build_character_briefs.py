@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any, cast
 
 REPO = Path(__file__).resolve().parents[2]
 APPEARANCE_SUMMARY_MAX_WORDS = 100
@@ -47,24 +48,26 @@ def _truncate_words(s: str | None, n: int) -> str | None:
     return " ".join(words[:n]) + "..."
 
 
-def _brief_for(char_data: dict, fallback_name: str) -> dict:
-    identity = char_data.get("identity", {}) or {}
-    appearance = char_data.get("appearance", {}) or {}
-    personality = char_data.get("personality", {}) or {}
-    speech = char_data.get("speech", {}) or {}
+def _brief_for(char_data: dict[str, Any], fallback_name: str) -> dict[str, Any]:
+    identity: dict[str, Any] = cast(dict[str, Any], char_data.get("identity", {}) or {})
+    appearance: dict[str, Any] = cast(dict[str, Any], char_data.get("appearance", {}) or {})
+    personality: dict[str, Any] = cast(dict[str, Any], char_data.get("personality", {}) or {})
+    speech: dict[str, Any] = cast(dict[str, Any], char_data.get("speech", {}) or {})
+    summary_any: Any = appearance.get("summary")
+    summary_str: str | None = summary_any if isinstance(summary_any, str) else None
     return {
         "name": identity.get("full_name") or fallback_name,
         "gender": identity.get("gender"),
         "height": appearance.get("height"),
         "build": appearance.get("build"),
         "appearance_summary": _truncate_words(
-            appearance.get("summary"), APPEARANCE_SUMMARY_MAX_WORDS
+            summary_str, APPEARANCE_SUMMARY_MAX_WORDS
         ) or "",
-        "core_traits": list(personality.get("core_traits") or []),
+        "core_traits": list(cast(list[Any], personality.get("core_traits") or [])),
         "emotional_baseline": personality.get("emotional_baseline"),
-        "quirks": list(personality.get("quirks") or []),
+        "quirks": list(cast(list[Any], personality.get("quirks") or [])),
         "voice_description": speech.get("voice_description"),
-        "speech_patterns": list(speech.get("speech_patterns") or []),
+        "speech_patterns": list(cast(list[Any], speech.get("speech_patterns") or [])),
         "vocabulary_level": speech.get("vocabulary_level"),
     }
 
@@ -81,23 +84,27 @@ def main() -> int:
 
     meta_path = dlg_dir / "context_cache.json"
     if not meta_path.exists():
-        print(f"ERROR: context_cache.json missing — run build_context_cache.py first")
+        print("ERROR: context_cache.json missing — run build_context_cache.py first")
         return 1
 
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    participant_ids = meta.get("participant_ids") or []
+    meta: dict[str, Any] = cast(dict[str, Any], json.loads(meta_path.read_text(encoding="utf-8")))
+    participant_ids: list[str] = [
+        p for p in cast(list[Any], meta.get("participant_ids") or []) if isinstance(p, str)
+    ]
     if not participant_ids:
         print("ERROR: context_cache.json has no participant_ids")
         return 1
 
-    briefs: dict[str, dict] = {}
+    briefs: dict[str, dict[str, Any]] = {}
     missing: list[str] = []
     for char_id in participant_ids:
         cache_path = dlg_dir / f"context_cache_{char_id}.json"
         if not cache_path.exists():
             missing.append(char_id)
             continue
-        char_data = json.loads(cache_path.read_text(encoding="utf-8"))
+        char_data: dict[str, Any] = cast(
+            dict[str, Any], json.loads(cache_path.read_text(encoding="utf-8"))
+        )
         briefs[char_id] = _brief_for(char_data, fallback_name=char_id)
 
     if missing:

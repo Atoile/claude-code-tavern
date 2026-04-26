@@ -19,10 +19,13 @@ Usage:
     python application/scripts/build_context_cache.py --dialogue-id <id>
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
+from typing import Any, cast
 
 # Overwrite file for additional character fields. Lorebook key patterns in this
 # file are consumed by build_active_lorebook.py, not by this script.
@@ -37,7 +40,7 @@ FIELD_LIST_MAX = 5
 FIELD_LIST_ITEM_MAX = 250
 
 # Character data fields to extract (SFW baseline)
-CHARACTER_FIELDS = {
+CHARACTER_FIELDS: dict[str, list[str]] = {
     "identity": ["full_name", "gender", "occupation", "background_summary"],
     "appearance": ["summary", "height", "build", "typical_clothing"],
     "personality": ["core_traits", "emotional_baseline", "quirks"],
@@ -46,28 +49,30 @@ CHARACTER_FIELDS = {
 }
 
 
-def load_json(path):
+def load_json(path: str) -> Any:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def write_json(path, data):
+def write_json(path: str, data: Any) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def load_overwrite():
+def load_overwrite() -> None:
     if not os.path.exists(OVERWRITE_PATH):
         return
-    overwrite = load_json(OVERWRITE_PATH)
-    for section, fields in overwrite.get("additional_character_fields", {}).items():
+    overwrite: dict[str, Any] = cast(dict[str, Any], load_json(OVERWRITE_PATH))
+    additional: dict[str, Any] = cast(dict[str, Any], overwrite.get("additional_character_fields", {}) or {})
+    for section, fields_any in additional.items():
+        fields: list[str] = [f for f in cast(list[Any], fields_any or []) if isinstance(f, str)]
         if section in CHARACTER_FIELDS:
             CHARACTER_FIELDS[section].extend(f for f in fields if f not in CHARACTER_FIELDS[section])
         else:
             CHARACTER_FIELDS[section] = list(fields)
 
 
-def _truncate_str(s, cap):
+def _truncate_str(s: Any, cap: int) -> Any:
     if not isinstance(s, str):
         return s
     if len(s) <= cap:
@@ -75,32 +80,33 @@ def _truncate_str(s, cap):
     return s[:cap].rstrip() + "…"
 
 
-def truncate_value(v):
+def truncate_value(v: Any) -> Any:
     """Recursively truncate strings and lists to keep the cache compact."""
     if isinstance(v, str):
         return _truncate_str(v, FIELD_STR_MAX)
     if isinstance(v, list):
-        truncated = []
-        for item in v[:FIELD_LIST_MAX]:
+        truncated: list[Any] = []
+        for item in cast(list[Any], v)[:FIELD_LIST_MAX]:
             if isinstance(item, str):
                 truncated.append(_truncate_str(item, FIELD_LIST_ITEM_MAX))
             else:
                 truncated.append(truncate_value(item))
         return truncated
     if isinstance(v, dict):
-        return {k: truncate_value(val) for k, val in v.items()}
+        v_d: dict[str, Any] = cast(dict[str, Any], v)
+        return {k: truncate_value(val) for k, val in v_d.items()}
     return v
 
 
-def extract_character(data):
-    result = {}
+def extract_character(data: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
     for section, fields in CHARACTER_FIELDS.items():
-        section_data = data.get(section, {})
+        section_data: dict[str, Any] = cast(dict[str, Any], data.get(section, {}) or {})
         result[section] = {f: truncate_value(section_data.get(f)) for f in fields}
     return result
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dialogue-id", required=True)
     args = parser.parse_args()
@@ -124,24 +130,26 @@ def main():
         print(f"ERROR: neither scenario.json nor goals.json found in {dialogue_dir}", file=sys.stderr)
         sys.exit(1)
 
-    characters = load_json(characters_path)
-    scenario = load_json(scenario_path) if has_scenario else None
-    goals = load_json(goals_path) if has_goals else None
+    characters: dict[str, Any] = cast(dict[str, Any], load_json(characters_path))
+    scenario: dict[str, Any] | None = cast(dict[str, Any], load_json(scenario_path)) if has_scenario else None
+    goals: dict[str, Any] | None = cast(dict[str, Any], load_json(goals_path)) if has_goals else None
 
-    participants = characters.get("participants", {})
+    participants: dict[str, Any] = cast(dict[str, Any], characters.get("participants", {}) or {})
     if not participants:
         print("ERROR: characters.json has no participants", file=sys.stderr)
         sys.exit(1)
 
     # Resolve source data file paths so we can mtime-check them against the cache
-    source_files = [characters_path]
+    source_files: list[str] = [characters_path]
     if has_scenario:
         source_files.append(scenario_path)
     if has_goals:
         source_files.append(goals_path)
-    for info in participants.values():
-        if info.get("data_path") and os.path.exists(info["data_path"]):
-            source_files.append(info["data_path"])
+    for info_any in participants.values():
+        info: dict[str, Any] = cast(dict[str, Any], info_any) if isinstance(info_any, dict) else {}
+        dp_any: Any = info.get("data_path")
+        if isinstance(dp_any, str) and os.path.exists(dp_any):
+            source_files.append(dp_any)
 
     if os.path.exists(cache_path):
         cache_mtime = os.path.getmtime(cache_path)
@@ -160,31 +168,38 @@ def main():
         sys.exit(1)
 
     # Validate every participant has a data_path on disk
-    for cid, info in participants.items():
-        if not info.get("data_path"):
+    for cid, info_any in participants.items():
+        info: dict[str, Any] = cast(dict[str, Any], info_any) if isinstance(info_any, dict) else {}
+        dp_any: Any = info.get("data_path")
+        if not dp_any:
             print(f"ERROR: missing data_path for participant: {cid}", file=sys.stderr)
             sys.exit(1)
-        if not os.path.exists(info["data_path"]):
-            print(f"ERROR: data.json not found: {info['data_path']}", file=sys.stderr)
+        if not isinstance(dp_any, str) or not os.path.exists(dp_any):
+            print(f"ERROR: data.json not found: {dp_any}", file=sys.stderr)
             sys.exit(1)
 
     # Load every participant's data.json
-    char_data = {cid: load_json(info["data_path"]) for cid, info in participants.items()}
+    char_data: dict[str, dict[str, Any]] = {}
+    for cid, info_any in participants.items():
+        info_d: dict[str, Any] = cast(dict[str, Any], info_any)
+        char_data[cid] = cast(dict[str, Any], load_json(cast(str, info_d["data_path"])))
 
     # Pull scene text from scenario.json (normal mode) or goals.json (narrator mode)
+    scenario_text: Any
     if scenario:
-        scenario_participants = scenario.get("participants", {})
+        scenario_participants: dict[str, Any] = cast(dict[str, Any], scenario.get("participants", {}) or {})
         if leading_id not in scenario_participants:
             print(f"ERROR: leading_id '{leading_id}' not in scenario.json participants", file=sys.stderr)
             sys.exit(1)
-        scenario_text = scenario_participants[leading_id].get("scenario", "")
+        sp_lead: dict[str, Any] = cast(dict[str, Any], scenario_participants[leading_id])
+        scenario_text = sp_lead.get("scenario", "")
     elif goals:
         scenario_text = goals.get("scene", "")
     else:
         scenario_text = ""
 
     # Write meta file
-    meta = {
+    meta: dict[str, Any] = {
         "scenario": scenario_text,
         "leading_id": leading_id,
         "participant_ids": sorted(char_data.keys()),

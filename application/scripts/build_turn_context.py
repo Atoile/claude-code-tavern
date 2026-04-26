@@ -26,27 +26,30 @@ The agent reads: instructions + turn_context_{i}.json + prior context = 3 reads
 instead of: instructions + plan + lorebook + rules + prose_tail + ... = 8+ reads
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
+from typing import Any, cast
 
 
-def load_json(path):
+def load_json(path: str) -> Any:
     if not os.path.exists(path):
         return None
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def load_text(path):
+def load_text(path: str) -> str | None:
     if not os.path.exists(path):
         return None
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dialogue-id", required=True)
     args = parser.parse_args()
@@ -54,25 +57,27 @@ def main():
     dialogue_dir = os.path.join("infrastructure", "dialogues", args.dialogue_id)
     plan_path = os.path.join(dialogue_dir, "reply_plan.json")
 
-    plan = load_json(plan_path)
-    if not plan:
+    plan_raw: Any = load_json(plan_path)
+    if not plan_raw:
         print(f"ERROR: reply_plan.json not found: {plan_path}", file=sys.stderr)
         sys.exit(1)
 
-    turns = plan.get("turns", [])
+    plan: dict[str, Any] = cast(dict[str, Any], plan_raw)
+    turns: list[Any] = cast(list[Any], plan.get("turns", []) or [])
 
     # Briefs now live in a sidecar file built by build_character_briefs.py in
     # Phase 0 — the planner no longer copies them into reply_plan.json. Fall
     # back to plan.character_briefs if the sidecar is missing (older dialogues
     # whose plans still carry briefs inline).
     briefs_path = os.path.join(dialogue_dir, "character_briefs.json")
-    briefs = load_json(briefs_path) or plan.get("character_briefs", {})
+    briefs_raw: Any = load_json(briefs_path) or plan.get("character_briefs", {})
+    briefs: dict[str, Any] = cast(dict[str, Any], briefs_raw or {})
 
     # Writing rules
     writing_rules = load_text("domain/dialogue/writing_rules_cache.md") or ""
 
     # Prose tail
-    prose_tail = load_json(os.path.join(dialogue_dir, "prose_tail.json"))
+    prose_tail: Any = load_json(os.path.join(dialogue_dir, "prose_tail.json"))
 
     # Scene context summary from plan
     scene_context = plan.get("scene_context_summary", "")
@@ -81,20 +86,22 @@ def main():
     # Turn agents must honor every populated field (time, location, proximity,
     # positions, wardrobe, in_progress_action). Empty-dict fallback for older
     # plans that predate this field.
-    scene_anchor = plan.get("scene_anchor") or {}
+    scene_anchor: dict[str, Any] = cast(dict[str, Any], plan.get("scene_anchor") or {})
 
     built = 0
-    for i, turn in enumerate(turns):
-        speaker = turn.get("speaker", "")
+    for i, turn_any in enumerate(turns):
+        turn: dict[str, Any] = cast(dict[str, Any], turn_any) if isinstance(turn_any, dict) else {}
+        speaker_v: Any = turn.get("speaker", "")
+        speaker: str = speaker_v if isinstance(speaker_v, str) else ""
 
         # Speaker's brief
-        brief = briefs.get(speaker, {})
+        brief: Any = briefs.get(speaker, {})
 
         # Speaker's active lorebook
         lorebook_path = os.path.join(dialogue_dir, f"active_lorebook_{speaker}.json")
-        lorebook = load_json(lorebook_path) or []
+        lorebook: Any = load_json(lorebook_path) or []
 
-        cache = {
+        cache: dict[str, Any] = {
             "dialogue_id": args.dialogue_id,
             "turn_index": i,
             "total_turns": len(turns),

@@ -24,13 +24,16 @@ if no turn files are found yet. The file is cleaned up automatically by `append_
 on successful append.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import re
+from typing import Any, cast
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dialogue-id", required=True)
     args = parser.parse_args()
@@ -42,12 +45,12 @@ def main():
     # Determine the ordered list of turn indices to read
     if os.path.exists(plan_path):
         with open(plan_path, "r", encoding="utf-8") as f:
-            plan = json.load(f)
-        turn_indices = list(range(len(plan.get("turns", []))))
+            plan: dict[str, Any] = cast(dict[str, Any], json.load(f))
+        turn_indices = list(range(len(cast(list[Any], plan.get("turns", []) or []))))
     else:
         # No plan — walk reply_turn_<i>.json files in numeric order
         pattern = re.compile(r"^reply_turn_(\d+)\.json$")
-        indices = []
+        indices: list[int] = []
         if os.path.isdir(dialogue_dir):
             for entry in os.listdir(dialogue_dir):
                 m = pattern.match(entry)
@@ -55,13 +58,13 @@ def main():
                     indices.append(int(m.group(1)))
         turn_indices = sorted(indices)
 
-    preview = []
+    preview: list[dict[str, Any]] = []
     for i in turn_indices:
         turn_path = os.path.join(dialogue_dir, f"reply_turn_{i}.json")
         if not os.path.exists(turn_path):
             continue  # not yet written — skip; later runs will pick it up
         with open(turn_path, "r", encoding="utf-8") as f:
-            turn = json.load(f)
+            turn: dict[str, Any] = cast(dict[str, Any], json.load(f))
         preview.append({
             "speaker": turn.get("speaker", ""),
             "text": turn.get("text", ""),

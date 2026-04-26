@@ -8,7 +8,6 @@ without any caching games.
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,7 +30,7 @@ class TavernConfig:
     overwrite_text: str = ""
     has_phase_3b: bool = False
     has_phase_4b: bool = False
-    raw_env: dict[str, str] = field(default_factory=dict)
+    raw_env: dict[str, str] = field(default_factory=dict[str, str])
 
     @property
     def planner_model(self) -> str:

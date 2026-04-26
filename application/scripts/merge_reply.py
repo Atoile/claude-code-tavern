@@ -17,26 +17,29 @@ Verbatim turns are excluded from output (they were already materialized into the
 by apply_verbatim → expand step). All intermediate files are deleted on success.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
+from typing import Any, cast
 
 HISTORY_MAX_ROUNDS = 5
 HISTORY_MAX_TURNS = 20  # rolling buffer size in flat per-turn format
 
 
-def load_json(path):
+def load_json(path: str) -> Any:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def write_json(path, data):
+def write_json(path: str, data: Any) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dialogue-id", required=True)
     parser.add_argument("--output-path", required=True)
@@ -49,34 +52,47 @@ def main():
         print(f"ERROR: required file not found: {plan_path}", file=sys.stderr)
         sys.exit(1)
 
-    plan = load_json(plan_path)
-    plan_turns = plan.get("turns", [])
+    plan_raw: Any = load_json(plan_path)
+    plan: dict[str, Any] = cast(dict[str, Any], plan_raw) if isinstance(plan_raw, dict) else {}
+    plan_turns_raw: Any = plan.get("turns", [])
+    plan_turns: list[dict[str, Any]] = []
+    if isinstance(plan_turns_raw, list):
+        for t in cast(list[Any], plan_turns_raw):
+            if isinstance(t, dict):
+                plan_turns.append(cast(dict[str, Any], t))
     if not plan_turns:
         print("ERROR: reply_plan.json has no turns", file=sys.stderr)
         sys.exit(1)
 
-    pending_tbc = plan.get("pending_tbc")  # captured before plan is deleted below
+    pending_tbc_raw: Any = plan.get("pending_tbc")  # captured before plan is deleted below
+    pending_tbc: dict[str, Any] | None = (
+        cast(dict[str, Any], pending_tbc_raw) if isinstance(pending_tbc_raw, dict) else None
+    )
 
     # Verbatim turns (first-turn mode) are already in the chat — exclude from output
-    verbatim_speakers = {t["speaker"] for t in plan_turns if t.get("verbatim")}
+    verbatim_speakers: set[Any] = {t["speaker"] for t in plan_turns if t.get("verbatim")}
 
     # Walk the plan in order, picking up the matching reply_turn_<i>.json for each
-    turn_files = []
-    turns = []
-    for i, plan_turn in enumerate(plan_turns):
+    turn_files: list[str] = []
+    turns: list[dict[str, Any]] = []
+    for i, _plan_turn in enumerate(plan_turns):
         turn_path = os.path.join(dialogue_dir, f"reply_turn_{i}.json")
         if not os.path.exists(turn_path):
             print(f"ERROR: missing turn file: {turn_path}", file=sys.stderr)
             sys.exit(1)
         turn_files.append(turn_path)
-        turn_data = load_json(turn_path)
+        turn_data_raw: Any = load_json(turn_path)
+        if not isinstance(turn_data_raw, dict):
+            print(f"ERROR: malformed turn file: {turn_path}", file=sys.stderr)
+            sys.exit(1)
+        turn_data: dict[str, Any] = cast(dict[str, Any], turn_data_raw)
         if turn_data.get("speaker") in verbatim_speakers:
             continue
         turns.append(turn_data)
 
-    output: dict[str, object] = {"turns": turns}
+    output: dict[str, Any] = {"turns": turns}
 
-    turn_state = plan.get("turn_state")
+    turn_state: Any = plan.get("turn_state")
     if turn_state is not None:
         output["turn_state"] = turn_state
 
@@ -92,13 +108,19 @@ def main():
     # the same round omit the field. This lets rollback pop exactly one history entry
     # when the user removes the single most recent chat turn.
     history_path = os.path.join(dialogue_dir, "reply_history.json")
-    history = load_json(history_path) if os.path.exists(history_path) else []
+    history_raw: Any = load_json(history_path) if os.path.exists(history_path) else []
+    history: list[dict[str, Any]] = []
+    if isinstance(history_raw, list):
+        for h in cast(list[Any], history_raw):
+            if isinstance(h, dict):
+                history.append(cast(dict[str, Any], h))
 
-    scene_context = plan.get("scene_context_summary", "")
+    scene_context: Any = plan.get("scene_context_summary", "")
     for idx, t in enumerate(plan_turns):
-        beats = t.get("beats") or []
-        summary = "; ".join(b for b in beats if b)
-        entry = {
+        beats_raw: Any = t.get("beats") or []
+        beats: list[Any] = cast(list[Any], beats_raw) if isinstance(beats_raw, list) else []
+        summary = "; ".join(str(b) for b in beats if b)
+        entry: dict[str, Any] = {
             "speaker": t["speaker"],
             "summary": summary,
         }

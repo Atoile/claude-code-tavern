@@ -38,7 +38,7 @@ async def run_inline(dialogue_id: str, cfg: TavernConfig) -> None:
     required, absent = build_required_reads(
         base=_BASE, optional=_OPTIONAL, dialogue_id=dialogue_id,
     )
-    task_json = {"type": "condense_memory", "input": {"dialogue_id": dialogue_id}}
+    task_json: dict[str, Any] = {"type": "condense_memory", "input": {"dialogue_id": dialogue_id}}
     prompt = build_prompt(
         instruction_file="application/dialogue/condense_memory.md",
         task_json=task_json,

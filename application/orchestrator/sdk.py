@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import datetime
 import json
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -33,6 +32,7 @@ from claude_agent_sdk.types import (
     SystemMessage,
     TextBlock,
     ThinkingBlock,
+    ThinkingConfig,
     ToolUseBlock,
     UserMessage,
 )
@@ -132,7 +132,7 @@ async def spawn_agent(
     if model not in MODEL_MAP:
         raise ValueError(f"model must be 'sonnet' or 'haiku', got {model!r}")
 
-    thinking_cfg = None
+    thinking_cfg: ThinkingConfig | None = None
     if thinking_budget == "off" or thinking_budget == 0:
         thinking_cfg = {"type": "disabled"}
     elif thinking_budget == "adaptive":
@@ -167,7 +167,6 @@ async def spawn_agent(
         print(f"  [{label}] >> spawning ({model}) tools={allowed_tools or DEFAULT_TOOLS}{thinking_str}",
               flush=True)
     t0 = time.monotonic()
-    last_progress = t0
 
     text = ""
     is_error = False
@@ -204,7 +203,7 @@ async def spawn_agent(
                     input_size = len(input_serialized)
                     tool_input_chars += input_size
                     summary = _format_tool(block.name, block.input)
-                    record = {
+                    record: dict[str, Any] = {
                         "name": block.name,
                         "summary": summary,
                         "input_size_chars": input_size,
@@ -222,7 +221,6 @@ async def spawn_agent(
                         record["content_size_chars"] = len(content)
                     captured_tools.append(record)
                     _emit(label, f"* {summary}", quiet)
-                    last_progress = time.monotonic()
                 elif isinstance(block, ThinkingBlock):
                     thinking_blocks += 1
                     thinking_chars += len(block.thinking)
@@ -231,7 +229,6 @@ async def spawn_agent(
                     # logs and useless without the SDK to verify it.
                     captured_thinking.append({"thinking": block.thinking})
                     _emit(label, f"~ thinking ({len(block.thinking)} chars)", quiet)
-                    last_progress = time.monotonic()
                 elif isinstance(block, TextBlock):
                     txt = block.text.strip()
                     if txt:
@@ -243,7 +240,6 @@ async def spawn_agent(
                         captured_text.append({"text": block.text})
                         text_chars += len(block.text)
                         _emit(label, f"> {_short(txt, 130)}", quiet)
-                        last_progress = time.monotonic()
         elif isinstance(msg, SystemMessage):
             # SystemMessage subtypes: init, etc. Mostly noise — emit only errors.
             if msg.subtype == "error":
@@ -302,7 +298,7 @@ async def spawn_agent(
         in_tok = (usage or {}).get("input_tokens", 0)
         out_tok = (usage or {}).get("output_tokens", 0)
         cache_read = (usage or {}).get("cache_read_input_tokens", 0)
-        record = {
+        record_log: dict[str, Any] = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
             "label": label,
             "model": model,
@@ -326,7 +322,7 @@ async def spawn_agent(
             "tool_calls": captured_tools,
         }
         with log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            f.write(json.dumps(record_log, ensure_ascii=False) + "\n")
 
     return SpawnResult(
         text=text, is_error=is_error, usage=usage,
