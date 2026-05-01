@@ -153,8 +153,8 @@ def main() -> None:
 
         new_words = sum(_word_count(t) for t in new_turns)
 
-        # Minimum 10 turns between condensations — baseline for all triggers
-        MIN_TURNS_BETWEEN_CONDENSE = 10
+        # Minimum 20 turns between condensations — baseline for all triggers
+        MIN_TURNS_BETWEEN_CONDENSE = 20
 
         # Context loss prevention: turns that fell off recent_chat but aren't in memory
         # Only trigger when the gap is significant (10+ uncovered turns)

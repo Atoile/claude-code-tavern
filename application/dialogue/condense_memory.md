@@ -48,6 +48,8 @@ Write `infrastructure/dialogues/{dialogue_id}/memory_checkpoint.json`:
 
 ## 3. Update full memory (`memory.json`)
 
+**Before writing:** Read `infrastructure/dialogues/{dialogue_id}/memory.json` first (it may or may not exist — that's fine). The Write tool requires a prior Read on the path.
+
 Synthesize the existing memory (if any) with the 10-entry condensing batch. Write the result to `infrastructure/dialogues/{dialogue_id}/memory.json`.
 
 The full memory is a cumulative record. It grows over time but stays synthesized — no raw dialogue, only extracted facts and states.
@@ -79,6 +81,8 @@ Rules:
 ---
 
 ## 4. Generate short memory (`short_memory.json`)
+
+**Before writing:** Read `infrastructure/dialogues/{dialogue_id}/short_memory.json` first (it may or may not exist — that's fine). The Write tool requires a prior Read on the path.
 
 Fully rewrite `infrastructure/dialogues/{dialogue_id}/short_memory.json` from `recent_chat.json`. This is a snapshot of the immediate present — what a reader would need to know to walk into the scene right now.
 

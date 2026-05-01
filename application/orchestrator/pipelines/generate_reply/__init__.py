@@ -55,95 +55,104 @@ def _clear_stale_round_artifacts(dialogue_id: str) -> list[str]:
     return deleted
 
 
-async def run(item: dict[str, Any], cfg: TavernConfig) -> None:
+_PHASES = ["phase0", "phase0b", "phase1", "phase1b", "phase2", "phase3", "phase4"]
+
+
+async def run(item: dict[str, Any], cfg: TavernConfig, start_from: str | None = None) -> None:
     dialogue_id: str = item["input"]["dialogue_id"]
     user_prompt: str | None = item["input"].get("user_prompt")
     output_path: str = item["output_path"]
 
-    # Pre-flight: clear stale per-round artifacts from any prior failed run.
-    deleted = _clear_stale_round_artifacts(dialogue_id)
-    if deleted:
-        print(f"  [cleanup] cleared stale: {', '.join(deleted)}", flush=True)
+    if start_from is not None and start_from not in _PHASES:
+        raise ValueError(f"Unknown phase {start_from!r}. Valid: {_PHASES}")
+    start_idx = _PHASES.index(start_from) if start_from else 0
+
+    def _skip(phase: str) -> bool:
+        return _PHASES.index(phase) < start_idx
+
+    # Pre-flight: clear stale artifacts only on a full run. When resuming
+    # mid-pipeline the existing files are the point — don't wipe them.
+    if not _skip("phase0"):
+        deleted = _clear_stale_round_artifacts(dialogue_id)
+        if deleted:
+            print(f"  [cleanup] cleared stale: {', '.join(deleted)}", flush=True)
+        else:
+            print("  [cleanup] no stale artifacts", flush=True)
     else:
-        print("  [cleanup] no stale artifacts", flush=True)
+        print(f"  [resume] starting from {start_from}", flush=True)
 
     # Phase 0 — five prep scripts
-    prep.run_phase_0(dialogue_id, user_prompt)
+    if not _skip("phase0"):
+        prep.run_phase_0(dialogue_id, user_prompt)
 
     # Phase 0b — narrator → normal mode transition bridge (only if state demands it)
-    await transition.maybe_run(dialogue_id, cfg)
+    if not _skip("phase0b"):
+        await transition.maybe_run(dialogue_id, cfg)
 
-    # Phase 1 — plan, with Phase 1b validate + 1c handler loop
-    await _plan_validate_handle_loop(dialogue_id, item, cfg)
+    # Phase 1 — plan + Phase 1b validate + 1c handler
+    if not _skip("phase1b"):
+        await _plan_validate_handle_loop(dialogue_id, item, cfg, skip_plan=_skip("phase1"))
 
     # Phase 2 — generate turns
-    await turns.run_phase_2(dialogue_id, item, cfg)
+    if not _skip("phase2"):
+        await turns.run_phase_2(dialogue_id, item, cfg)
 
     # Phase 3 — merge + optional Phase 3b actualization
-    await merge.run_phase_3(dialogue_id, output_path, cfg)
+    if not _skip("phase3"):
+        await merge.run_phase_3(dialogue_id, output_path, cfg)
 
     # Phase 4 — append + optional 4b finalization + condense check
-    await append.run_phase_4(dialogue_id, output_path, user_prompt, cfg)
+    if not _skip("phase4"):
+        await append.run_phase_4(dialogue_id, output_path, user_prompt, cfg)
 
 
-# Check IDs that ALWAYS demand a full replan — no patch can recover. Detected
-# directly by the orchestrator from plan_validation.json so we don't waste a
-# Sonnet handler spawn just to delete reply_plan.json + write status:"restart".
-# These mirror the categorical-critical list in handle_plan_validation.md.
+class ValidationError(RuntimeError):
+    """Raised on a critical validation failure.
+
+    reply_plan.json and plan_validation.json are left on disk for debugging.
+    The next run's pre-flight (_clear_stale_round_artifacts) will sweep them.
+    """
+
+
+# Check IDs that are always critical — no handler spawn needed.
+# Mirrors the categorical-critical list in handle_plan_validation.md.
 _UNCONDITIONAL_CRITICAL_CHECKS = {
-    "2b1c_missing_reactor",            # planner omitted a Tier 1 reactor
-    "2b_turn_order",                   # last char speaker in turn_order doesn't match reply_history
-    "2g_narrator_speech_purity",       # asterisk action in a narrator-mode speech turn
-    "2g_narrator_speech_action_mixed", # action interleaved with dialogue
-    "2h_scene_anchor_contradiction",   # plan reverses time / teleports / silently changes wardrobe vs prior round
+    "2b1c_missing_reactor",
+    "2b_turn_order",
+    "2g_narrator_speech_purity",
+    "2g_narrator_speech_action_mixed",
+    "2h_scene_anchor_contradiction",
 }
-
-# Check IDs whose criticality depends on scope (e.g. 2f2 majority threshold).
-# We compute the scope inside _detect_critical and decide there.
-_SCOPED_CRITICAL_CHECKS = {"2f2"}
 
 
 def _detect_critical(verdict: dict[str, Any], dialogue_id: str) -> tuple[bool, str]:
-    """Decide if validation failure is critical without spawning the handler.
-
-    Returns (is_critical, reason). On True, the orchestrator deletes the plan
-    and replans immediately. On False, the handler agent decides per-issue.
-    """
+    """Return (is_critical, reason) from plan_validation.json without spawning the handler."""
     issues_raw: Any = verdict.get("issues") or []
-    issues: list[dict[str, Any]] = []
-    if isinstance(issues_raw, list):
-        for it in cast(list[Any], issues_raw):
-            if isinstance(it, dict):
-                issues.append(cast(dict[str, Any], it))
-    errors: list[dict[str, Any]] = [i for i in issues if i.get("severity") == "error"]
+    issues: list[dict[str, Any]] = [
+        cast(dict[str, Any], it)
+        for it in (cast(list[Any], issues_raw) if isinstance(issues_raw, list) else [])
+        if isinstance(it, dict)
+    ]
+    errors = [i for i in issues if i.get("severity") == "error"]
     if not errors:
         return False, ""
 
-    # Pattern 1: any unconditionally-critical check ID.
     for issue in errors:
-        check_raw: Any = issue.get("check") or ""
-        check: str = check_raw if isinstance(check_raw, str) else ""
+        check: str = issue.get("check") or ""
         if check in _UNCONDITIONAL_CRITICAL_CHECKS:
-            spk_raw: Any = issue.get("speaker") or "?"
-            spk: str = spk_raw if isinstance(spk_raw, str) else "?"
-            return True, f"{check} on {spk} — unconditionally critical"
+            speaker: str = issue.get("speaker") or "?"
+            return True, f"{check} on {speaker} — unconditionally critical"
 
-    # Pattern 2: 2f2 (cross-character ability leakage) on >50% of turns.
+    # 2f2: critical only when majority of turns are affected.
     f2_speakers: set[Any] = {i.get("speaker") for i in errors if i.get("check") == "2f2"}
     if f2_speakers:
         plan_path = REPO / "infrastructure" / "dialogues" / dialogue_id / "reply_plan.json"
         try:
-            plan_data_raw: Any = json.loads(plan_path.read_text(encoding="utf-8"))
-            plan_data: dict[str, Any] = (
-                cast(dict[str, Any], plan_data_raw) if isinstance(plan_data_raw, dict) else {}
-            )
-            plan_turns_raw: Any = plan_data.get("turns") or []
-            plan_turns_list: list[Any] = (
-                cast(list[Any], plan_turns_raw) if isinstance(plan_turns_raw, list) else []
-            )
-            total = len(plan_turns_list)
+            plan_data = cast(dict[str, Any], json.loads(plan_path.read_text(encoding="utf-8")))
+            plan_turns = cast(list[Any], plan_data.get("turns") or [])
+            total = len(plan_turns)
             affected = sum(
-                1 for t in plan_turns_list
+                1 for t in plan_turns
                 if isinstance(t, dict) and cast(dict[str, Any], t).get("speaker") in f2_speakers
             )
             if total > 0 and affected * 2 > total:
@@ -154,68 +163,64 @@ def _detect_critical(verdict: dict[str, Any], dialogue_id: str) -> tuple[bool, s
     return False, ""
 
 
-def _orchestrator_critical_restart(dialogue_id: str, reason: str) -> None:
-    """Delete plan + validation + write a synthetic handler_result for traceability."""
-    dlg_dir = REPO / "infrastructure" / "dialogues" / dialogue_id
-    for name in ("reply_plan.json", "plan_validation.json"):
-        p = dlg_dir / name
-        if p.exists():
-            p.unlink()
-    # Synthetic handler_result.json — mimics what the handler would have written
-    # so any downstream tooling that inspects it sees a consistent record.
-    result = {
-        "status": "restart",
-        "reason": reason,
-        "decided_by": "orchestrator (short-circuit, no handler spawn)",
-    }
-    (dlg_dir / "handler_result.json").write_text(
-        json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+def _report_issues(verdict: dict[str, Any]) -> None:
+    issues_raw: Any = verdict.get("issues") or []
+    for issue in cast(list[Any], issues_raw) if isinstance(issues_raw, list) else []:
+        if isinstance(issue, dict):
+            d = cast(dict[str, Any], issue)
+            check = d.get("check") or "?"
+            severity = d.get("severity") or "?"
+            speaker = d.get("speaker") or "?"
+            detail = d.get("detail") or ""
+            print(f"  [phase1b] {check} | {severity} | {speaker} | {detail}", flush=True)
 
 
-async def _plan_validate_handle_loop(dialogue_id: str, item: dict[str, Any], cfg: TavernConfig) -> None:
-    """Plan → validate → on fail short-circuit critical / spawn handler for fixable.
-
-    Capped at 3 plan attempts and 3 handler patches per plan to avoid loops.
-    """
-    plan_attempts = 0
-    while True:
-        plan_attempts += 1
-        if plan_attempts > 3:
-            raise RuntimeError(f"Plan phase exceeded 3 attempts for dialogue {dialogue_id}")
-
+async def _plan_validate_handle_loop(
+    dialogue_id: str, item: dict[str, Any], cfg: TavernConfig, skip_plan: bool = False
+) -> None:
+    """Plan → validate → error on critical, patch+loop on fixable."""
+    if not skip_plan:
         await plan.run_phase_1(dialogue_id, item, cfg)
 
-        patches = 0
-        while True:
-            await validate.run_phase_1b(dialogue_id, item, cfg)
-            verdict = _read_validation(dialogue_id)
-            if verdict.get("status") == "pass":
-                print("  [orchestrator] validation passed -> Phase 2", flush=True)
-                return  # done — proceed to Phase 2
+    patches = 0
+    while True:
+        await validate.run_phase_1b(dialogue_id, item, cfg)
+        verdict = _read_validation(dialogue_id)
 
-            # Short-circuit critical-failure path: orchestrator detects it
-            # straight from plan_validation.json and replans without spawning
-            # the Sonnet handler agent.
-            is_critical, reason = _detect_critical(verdict, dialogue_id)
-            if is_critical:
-                print(f"  [phase1c orchestrator] CRITICAL — {reason} → replan", flush=True)
-                _orchestrator_critical_restart(dialogue_id, reason)
-                break  # outer loop — replan from scratch
+        if verdict.get("status") == "pass":
+            print("  [orchestrator] validation passed -> Phase 2", flush=True)
+            return
 
-            patches += 1
-            if patches > 3:
-                raise RuntimeError(f"Handler exceeded 3 patches for dialogue {dialogue_id}")
+        # Critical short-circuit — no handler spawn, raise immediately.
+        is_critical, reason = _detect_critical(verdict, dialogue_id)
+        if is_critical:
+            _report_issues(verdict)
+            raise ValidationError(
+                f"Plan validation failed ({reason}) for dialogue {dialogue_id} — "
+                f"debug files preserved at infrastructure/dialogues/{dialogue_id}/."
+            )
 
-            handler_result = await handler.run_phase_1c(dialogue_id, item, cfg, verdict)
-            status = handler_result.get("status")
-            if status == "restart":
-                break  # back to outer loop — replan
-            if status == "patched":
-                if not handler_result.get("revalidation_needed"):
-                    return  # trim-only patch + sizing verified — skip to Phase 2
-                continue  # re-validate the patched plan
-            raise RuntimeError(f"Unknown handler status {status!r} for dialogue {dialogue_id}")
+        # Fixable — spawn handler.
+        patches += 1
+        if patches > 3:
+            raise RuntimeError(f"Handler exceeded 3 patches for dialogue {dialogue_id}")
+
+        handler_result = await handler.run_phase_1c(dialogue_id, item, cfg, verdict)
+        status = handler_result.get("status")
+
+        if status == "restart":
+            # Handler classified issues as critical — raise instead of replanning.
+            _report_issues(verdict)
+            raise ValidationError(
+                f"Plan validation failed (handler: {handler_result.get('reason', '?')}) "
+                f"for dialogue {dialogue_id} — "
+                f"debug files preserved at infrastructure/dialogues/{dialogue_id}/."
+            )
+        if status == "patched":
+            if not handler_result.get("revalidation_needed"):
+                return  # trim-only patch + sizing verified — skip to Phase 2
+            continue  # re-validate the patched plan
+        raise RuntimeError(f"Unknown handler status {status!r} for dialogue {dialogue_id}")
 
 
 def _read_validation(dialogue_id: str) -> dict[str, Any]:

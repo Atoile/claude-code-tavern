@@ -13,6 +13,23 @@ You are given a queue item. Execute it completely. Do not modify `infrastructure
 
 > **Input contract:** Required reads in the prompt is the COMPLETE list of files for this spawn. Do not Read, Glob, or Bash-stat any other path beyond what's listed there or what the numbered steps below explicitly call out (the participant `data.json` files).
 
+> **Thinking discipline — strict, applies inside thinking blocks too.** Empirically, the previous gentle phrasing of this rule has been ignored. Read the prohibitions below as binding.
+>
+> **Prohibited inside thinking blocks (these are wasted tokens AND degrade output quality):**
+> - **Drafting adapted opening prose.** Sentences like *"I'm depicting Hana at the counter when the door chimes, looking up to see Horan walk in..."* or *"I pat the mattress beside me, letting my tail curl hopefully..."* or *"I'm pressing her against the wall, my tail securing her hip..."* belong inside the `Write` call's JSON, not in thinking. The source greetings are already in your context — transform them directly into the output, do not pre-compose them in thinking.
+> - **Restating or paraphrasing source greetings** before transforming them. The greeting text is in `data.json` which you've already read. Quoting/paraphrasing it back to yourself in thinking adds nothing. Read it, decide what to swap, write the swap.
+> - **Process narration.** *"Now I'm working through..."*, *"I'm continuing with..."*, *"Let me check..."*, *"Now I'm moving into..."* — all forbidden. Decide and emit, do not announce yourself.
+> - **Iterative prose refinement.** *"Let me revise..."*, *"I'm settling on..."*, *"That's tighter."* — if you find yourself revising, write the first version and exit. Validator + downstream usage will catch real issues; thinking-side polish is mostly waste.
+> - **Accumulating notes in thinking instead of in the `notes` array.** Anti-pattern flags, world-flavor mismatches, source-data inconsistencies, unresolved tokens — write each one as one entry in the `notes` array directly when you spot it. Do NOT pile them up in thinking and then transcribe to `notes` at the end.
+> - **Re-checking the same character data multiple times.** Decide what each opening needs once, then write. Returning to "let me check Horan's voice again" or "let me re-verify Hana's wardrobe" three times is loop behaviour.
+>
+> **Permitted inside thinking blocks (terminal decisions only):**
+> - Which lines need POV conversion (third-person speaker → first person)
+> - Which pronouns/names to swap and where
+> - Which `{token}` patterns need resolving and to what value
+> - Which anomalies to flag in the `notes` array (not the contents of the note — just *that* a note is needed; the actual note text goes straight into the JSON)
+> - Whether a flagged item is anti-pattern 1 (scenario framing weakening) vs anti-pattern 2 (world/setting drift) — if applicable
+
 ---
 
 ## 1. Read the queue item
@@ -49,16 +66,16 @@ Do not proceed until you have read every file.
 
 Each character's `scenario_defaults.typical_scenario` was written for a generic "the other character" or "you" (a player). Replace those generic references with the **other participants** of this scene.
 
-For 2-participant scenes, "the other character" → the one other participant.
-For 3+-participant scenes, "the other character" → all the other participants together (e.g. for a scene with Alice, Bob, and Carol, Alice's scenario adapts to feature both Bob and Carol as her counterparts; Bob's adapts for Alice and Carol; etc.).
+"The other character" → the one other participant.
 
 **Rules — minimal changes only:**
-- Replace generic "the other character" / "you" → the other participants' name(s)
-- Fix gender pronouns or anatomical assumptions that don't match the other participants' `data.json`
+- Replace generic "the other character" / "you" → the other participant's name
+- Fix gender pronouns or anatomical assumptions that don't match the other participant's `data.json`
 - Fix role assumptions (e.g. "middle-aged" if the other character is young) that clearly don't fit
 - Do NOT rewrite from scratch, invent new hooks, or add embellishment
 - Preserve the original wording and structure everywhere that still fits
-- For 3+-participant scenes where the source scenario is 1-on-1 framed, you may make minimal additions to acknowledge that more than one person is present (e.g. "Alice walks in" → "Alice and Bob walk in together"). Do not invent group dynamics not implied by the source.
+
+If the scene has 3+ participants, see the addendum at the end of this file before proceeding.
 
 ---
 
@@ -67,13 +84,13 @@ For 3+-participant scenes, "the other character" → all the other participants 
 Each character has a `dialogue_seeds.greeting` (always 1) and `dialogue_seeds.alternate_greetings` (array, may be empty). Adapt every one. **Never invent new lines — one output entry per source line.**
 
 **What to change:**
-- Third-person references to "the other character" → other participants' names or correct pronouns
-- Wrong gender pronouns for the other participants
-- Situational details about the other participants that don't fit their actual identity
+- Third-person references to "the other character" → other participant's name or correct pronouns
+- Wrong gender pronouns for the other participant
+- Situational details about the other participant that don't fit their actual identity
 - **Third-person narrator POV for the speaker themselves** — some source cards write the speaker's own actions in third person throughout: `"She steps out from behind the counter"`, `"Her hand leads the way"`, `"Rosy has been watching her partner"`. These are not references to the other character — they are the speaker being narrated from outside. Convert every such line to first person: `"I step out from behind the counter"`, `"My hand leads the way"`, `"I've been watching her"`. This is a full POV conversion, not a pronoun swap. Do it systematically for every action beat and narration line in the opening, even if most of the opening is in this style.
 
 **What NOT to change:**
-- Direct address ("you," "your") — this is the speaker addressing the other participant(s) and stays as "you" (or "you both" if a 3+ scene and the line clearly addresses everyone)
+- Direct address ("you," "your") — speaker addressing the other participant; stays as "you"
 - The character's own voice, vocabulary, rhythm, action beats
 - The hook, emotional register, and intent of the line
 - **Setting words, world-flavor markers, environmental nouns, or any vocabulary that is part of the speaker's own voice/setting** — apartment/hardwood/refrigerator, temple/silk/lantern, bridge/console/airlock, whatever the source uses. These belong to the character's data, not to this task.
@@ -81,39 +98,13 @@ Each character has a `dialogue_seeds.greeting` (always 1) and `dialogue_seeds.al
 
 ---
 
-**Core principle — change WHO, never WHAT KIND:**
+**Core principle — change WHO, never WHAT KIND.** You are changing **who** the scene is with, never **what kind of scene it is**. Pronoun/name/anatomy swaps only — not premise arbitration. Implicit AUs are fine; the user chose the pairing deliberately.
 
-You are changing **who** the scene is with. You are never changing **what kind of scene it is**.
+**Anti-pattern 1 — never weaken scenario framing.** Wedding → "state banquet," spouse → "guest," lover → "visitor," captive → "adversary I'm seducing" are all wrong. Keep the kind of scene; swap who's in it. Symptom: your output is *weaker* or *vaguer* than the source. If so, put it back.
 
-If the source says "wedding banquet," the output is a wedding banquet with the new partner as the spouse. If the source says "my spouse stood against me in council," the output is "my spouse stood against me in council" with the new partner as the spouse. If the source says "captive kneeling in my solar," the output is a captive kneeling in the solar. The adapter's job is pronoun/name/anatomy swaps — **not premise arbitration**.
+**Anti-pattern 2 — never fix world/setting drift.** If a card's setting clashes with its identity (ancient being + modern apartment, mythic figure + casual diction), do not soften vocabulary or pick world-flavor on the character's behalf. The user may have written it that way intentionally; even if not, the fix belongs in source `data.json`, not per-pairing.
 
-This holds even when the resulting pairing requires an implicit AU to make sense. "Princess Beatrice of Alvea has been arranged as Queen Miranda's political spouse" is a perfectly legitimate AU for a wedding-banquet greeting, even if the two characters' lorebooks treat each other as rivals. The user chose this pairing knowing what was in both source files — they are inhabiting the AU deliberately. Your job is to deliver it, not to second-guess it.
-
----
-
-**Anti-pattern 1 — stripping scenario framing because it "doesn't fit":**
-
-If the source greeting is a wedding banquet and the new partner is a rival queen, **do NOT** dissolve the wedding into a generic "state banquet" because rivals don't marry. Keep the wedding. Swap the bride. Swap the pronouns. Done.
-
-If the source greeting is "my spouse opposed me in council" and the new partner is a visiting royal, **do NOT** rewrite it as "a guest was discourteous to their host." Keep the spousal opposition. Swap the spouse.
-
-If the source greeting is "my established lover summoned to my bedchamber" and the new partner is an enemy, **do NOT** downgrade it to "adversary I have decided to seduce." Keep the lover framing. Swap the lover.
-
-The symptom of this anti-pattern: the output's scenario is *weaker* or *vaguer* than the source's. If you find yourself generalizing "wedding" → "state occasion," "spouse" → "guest," "lover" → "visitor," stop and put it back.
-
----
-
-**Anti-pattern 2 — fixing setting/world details:**
-
-If you notice that the character's source greetings contain setting/world details that seem to clash with their identity (e.g. "this character is described as ancient but the greeting is set in a modern apartment", or "this character is described as a starship captain but their greeting is in a tavern"), **do NOT fix it here**. Do not soften "apartment" to "rooms" because the character is ancient. Do not change "key in the lock" to "step at the door" because the character feels mythic. Do not pick world-flavor on the character's behalf.
-
-Two reasons:
-1. The user may have *intentionally* written an urban-fantasy / historical-fantasy / etc. setting where the apparent contradiction is the point. Long-lived supernatural beings living in modern apartments is a valid setting; you should not "resolve" it.
-2. Even if the contradiction is unintentional, fixing it per-pairing means every future scenario for this character will get a different drift. The fix belongs in the source `data.json`, not in `scenario.json`.
-
----
-
-**What to do instead (both anti-patterns):** complete the task with minimal partner-adaptation only (pronouns, partner name, anatomical/role assumptions about the *other* character), and **flag the observation in your task report** so the user can fix the source if they want to.
+**What to do instead (both anti-patterns):** apply only minimal partner-adaptation (pronouns, partner name, anatomical/role assumptions about the *other* character), and add an entry to the output `notes` array so the user can fix the source if they want to.
 
 **Formatting — fix source lines during adaptation:**
 
@@ -139,27 +130,32 @@ Write a single JSON file to `output_path`.
         "..."
       ]
     }
-  }
+  },
+  "notes": [
+    "<observation string — anti-pattern flags, source-data inconsistencies, unresolved tokens, etc.>"
+  ]
 }
 ```
 
 Every participant from `input.participants` must appear as a key in the output `participants` dict. Each one needs a `scenario` and an `openings` array regardless of which will be the leading character — that choice happens later in the UI.
 
-No markdown fences, no trailing commentary. Valid JSON only.
+The `notes` array is the **report channel** for anything you want to surface to the user without modifying the adapted prose:
+- Anti-pattern observations ("Saki's greeting 1 references Hana's mother — does not match Hana's barista background")
+- Unresolved `{token}`s in source text (when defined by overwrite)
+- Speaker-self tokens you intentionally left unresolved
+- Source-card inconsistencies you noticed but did not fix
+
+If you have nothing to flag, emit an empty array `"notes": []`. Always include the field.
+
+No markdown fences, no trailing commentary outside the JSON. Valid JSON only.
 
 ---
 
 ## 6. Validate before writing
 
 - [ ] Every input participant has a key in the output `participants` dict
-- [ ] Each scenario is a minimal adaptation — original wording mostly intact, only target-specific references changed
-- [ ] Openings use "you/your" for direct address, not the other participants' names
+- [ ] `notes` field present (empty array if nothing to flag)
 - [ ] Every opening traces to a source line — no invented lines
-- [ ] All speech in `"double quotes"`, all actions in `*asterisks*`, all interior thoughts in `` `backticks` ``
-- [ ] Action descriptions written in first person (`*I reach for the caddy.*`, not `*She reaches for the caddy.*`). If a source card is written entirely in third-person narrator style for the speaker, every single action line must be converted — not just ones that mention "the other character".
-- [ ] Interior thoughts always on their own line — never inline with action beats or dialogue
-- [ ] Distinct paragraphs separated by blank lines (markdown-ready formatting)
-- [ ] Pronouns for the other participants match their actual gender(s)
 - [ ] Valid JSON, no markdown wrapping
 
 ---
@@ -167,3 +163,13 @@ No markdown fences, no trailing commentary. Valid JSON only.
 ## 7. Signal completion
 
 The orchestrator pre-creates the dialogue directory and writes the initial `characters.json` with the participants dict in deterministic Python before spawning you. Your only output is the scenario file at `output_path`. Do NOT mkdir, do NOT write `characters.json`, do NOT touch any other file. Queue state is managed by the orchestrator.
+
+---
+
+## Addendum — 3+ participants (skip if only 2)
+
+This section applies only when `input.participants.length >= 3`. For 2-participant scenes, ignore everything below.
+
+**Section 3 (scenario adaptation):** "The other character" → all the other participants together. For a scene with Alice, Bob, and Carol: Alice's scenario adapts to feature both Bob and Carol as her counterparts; Bob's adapts for Alice and Carol; etc. Where the source scenario is 1-on-1 framed, you may make minimal additions to acknowledge that more than one person is present (e.g. "Alice walks in" → "Alice and Bob walk in together"). Do not invent group dynamics not implied by the source.
+
+**Section 4 (opening adaptation):** Direct address ("you," "your") may become "you both" / "you all" if the line clearly addresses everyone. Otherwise keep "you" as-is.

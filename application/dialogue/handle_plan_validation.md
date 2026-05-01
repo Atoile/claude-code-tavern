@@ -66,9 +66,9 @@ For every entry in `plan_validation.json.issues`, decide whether it is **critica
 
 ## 3. Act
 
-### Critical → restart plan phase
+### Critical → signal restart (preserve debug files)
 
-1. Delete `infrastructure/dialogues/{dialogue_id}/reply_plan.json` and `plan_validation.json`.
+1. Leave `reply_plan.json` and `plan_validation.json` in place — do NOT delete them. The orchestrator raises a hard error and the next run's pre-flight clears them.
 2. Write `infrastructure/dialogues/{dialogue_id}/handler_result.json`:
    ```json
    {
@@ -77,7 +77,7 @@ For every entry in `plan_validation.json.issues`, decide whether it is **critica
      "critical_issues": [<list of the critical issue objects from plan_validation.json>]
    }
    ```
-3. Report to the orchestrator: `"Handler: critical issues — plan phase must restart."`
+3. Report to the orchestrator: `"Handler: critical issues — signalling restart."`
 
 ### Fixable → patch in place
 
@@ -157,7 +157,7 @@ For every entry in `plan_validation.json.issues`, decide whether it is **critica
 5. **If weight does NOT allow → check weight bump feasibility.** A bump is permitted only if (a) the turn has not already been bumped this pass (global +1 budget — see top of section), AND (b) the next weight tier is narratively defensible. Narrative check:
    - `reaction → action`: the character must be taking initiative beyond pure response.
    - `action → inflection`: the turn must be a structural pivot (first touch, first kiss, first reveal, confession, TBC initiation at the threshold of a new phase).
-   - `inflection → climax`: the turn must be a payoff — emotional resolution, final line of an arc, orgasm, death, departure.
+   - `inflection → climax`: the turn must be a payoff — emotional resolution, final line of an arc, peak moment, death, departure.
 
    If both conditions are satisfied, bump the weight tier by exactly 1 and split. Consume the turn's bump budget.
 

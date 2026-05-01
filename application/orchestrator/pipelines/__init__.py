@@ -10,7 +10,7 @@ from ..env import TavernConfig
 # Resolved lazily to avoid heavy imports at module load.
 
 
-async def dispatch(item: dict[str, Any], cfg: TavernConfig) -> None:
+async def dispatch(item: dict[str, Any], cfg: TavernConfig, start_from: str | None = None) -> None:
     """Run the pipeline for one queue item. Raises on failure."""
     task_type = item.get("type")
     if task_type == "repack_character":
@@ -24,6 +24,6 @@ async def dispatch(item: dict[str, Any], cfg: TavernConfig) -> None:
         await run_condense(item, cfg)
     elif task_type == "generate_reply":
         from .generate_reply import run as run_generate_reply
-        await run_generate_reply(item, cfg)
+        await run_generate_reply(item, cfg, start_from=start_from)
     else:
         raise ValueError(f"no pipeline defined for task type {task_type!r}")

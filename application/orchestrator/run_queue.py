@@ -42,7 +42,9 @@ def _log(quiet: bool, msg: str) -> None:
         print(msg, flush=True)
 
 
-async def _process_one(items: list[dict[str, Any]], cfg: TavernConfig, quiet: bool) -> bool:
+async def _process_one(
+    items: list[dict[str, Any]], cfg: TavernConfig, quiet: bool, start_from: str | None = None
+) -> bool:
     """Pick + run + persist for one queue item. Returns True if work was done."""
     item = pick_next(items)
     if item is None:
@@ -53,7 +55,7 @@ async def _process_one(items: list[dict[str, Any]], cfg: TavernConfig, quiet: bo
     _log(quiet, f"[{item['type']}] {item.get('id')} → processing")
 
     try:
-        await dispatch(item, cfg)
+        await dispatch(item, cfg, start_from=start_from)
     except (KeyboardInterrupt, asyncio.CancelledError):
         # User hit Ctrl+C (or asyncio cancelled the task tree). Mark the item
         # as interrupted so the next run can detect it cleanly instead of
@@ -76,7 +78,7 @@ async def _process_one(items: list[dict[str, Any]], cfg: TavernConfig, quiet: bo
     return True
 
 
-async def _drain(cfg: TavernConfig, quiet: bool, once: bool) -> int:
+async def _drain(cfg: TavernConfig, quiet: bool, once: bool, start_from: str | None = None) -> int:
     items = read_queue()
 
     # Recovery check: 'processing' means a prior hard crash; 'interrupted'
@@ -98,7 +100,8 @@ async def _drain(cfg: TavernConfig, quiet: bool, once: bool) -> int:
             # tasks (frontend, enqueue.py) get picked up mid-drain.
             items = read_queue()
             try:
-                did_work = await _process_one(items, cfg, quiet)
+                did_work = await _process_one(items, cfg, quiet, start_from=start_from)
+                start_from = None  # only applies to the first task
             except (KeyboardInterrupt, asyncio.CancelledError):
                 _log(quiet, "Aborted by user (Ctrl+C). Item marked 'interrupted'.")
                 return 130  # conventional Ctrl+C exit code
@@ -129,7 +132,7 @@ async def _drain(cfg: TavernConfig, quiet: bool, once: bool) -> int:
 async def _watch_loop(cfg: TavernConfig, quiet: bool, interval: float) -> int:
     """Poll-mode driver. Drains the queue, sleeps, repeats."""
     while True:
-        rc = await _drain(cfg, quiet=quiet, once=False)
+        rc = await _drain(cfg, quiet=quiet, once=False, start_from=None)
         if rc not in (0, 2):
             return rc
         time.sleep(interval)
@@ -141,6 +144,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--watch", action="store_true", help="Poll queue.json forever.")
     ap.add_argument("--interval", type=float, default=2.0, help="Poll interval in seconds (--watch).")
     ap.add_argument("--quiet", action="store_true", help="Suppress info logs.")
+    ap.add_argument(
+        "--start-from",
+        metavar="PHASE",
+        default=None,
+        help=(
+            "Skip earlier phases of the first eligible task and resume from PHASE. "
+            "Valid for generate_reply: phase0 phase0b phase1 phase1b phase2 phase3 phase4. "
+            "Example: --start-from phase1b  (re-validate an existing reply_plan.json)"
+        ),
+    )
     args = ap.parse_args(argv)
 
     cfg = load_config()
@@ -155,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.watch:
             return asyncio.run(_watch_loop(cfg, args.quiet, args.interval))
-        return asyncio.run(_drain(cfg, quiet=args.quiet, once=args.once))
+        return asyncio.run(_drain(cfg, quiet=args.quiet, once=args.once, start_from=args.start_from))
     except KeyboardInterrupt:
         # Top-level catch — _drain marks the in-flight item before re-raising,
         # so by the time we land here the queue file is consistent.

@@ -15,6 +15,22 @@ A round may have 1, 2, or N turns total. You write one of them, identified by yo
 
 > **Input contract:** Required reads in the prompt is the COMPLETE list of files for this spawn. Do not Read, Glob, or Bash-stat any other path. The orchestrator pre-computes turn-index-specific reads (last_turn vs prior reply_turn_*) and lists exactly what your turn needs.
 
+> **Thinking discipline — strict, applies inside thinking blocks too.** Empirically, the previous gentle phrasing of this rule has been ignored. Read the prohibitions below as binding.
+>
+> **Prohibited inside thinking blocks (these are wasted tokens AND degrade output quality):**
+> - **Drafting prose passes.** Sentences like *"The silence stretches past the point of comfort — she looks away first..."* or *"The blow lands before she finishes the sentence..."* belong inside the `Write` call, not in thinking. If you find yourself composing prose, stop and write it.
+> - **Manual word counting.** Sentences like *"running light at around 380 words when I should be closer to 400-700"* or *"sitting around 365 words"* are forbidden. The merge step and validator run mechanical checks after you. The lower bound of the weight target is informational, not a quota — you do not need to hit it (see 2a).
+> - **Process narration.** *"Now I'm structuring..."*, *"Now I'm checking..."*, *"Now I'm refining beat 3..."* — all forbidden. Decide and emit, do not announce yourself.
+> - **Character voice rederivation.** *"I'm checking whether Saki's cold observation fits her character — flat affect, predatory — and deciding it works"* — `character_brief` already distills this; trust the brief, do not derive from sample lines in thinking.
+> - **Re-checking the same constraint multiple times.** Decide once. If you genuinely need to revisit, escalate by writing the prose and letting the validator catch any error.
+>
+> **Permitted inside thinking blocks (terminal creative decisions only):**
+> - Which prior-turn beats this turn must react to
+> - How to translate plan-speak beats into first-person prose phrasing (the *what*, not the prose itself)
+> - How to honor the tone field
+> - How to resolve plan-vs-anchor conflicts (rare)
+> - TBC freeze framing if applicable
+
 ---
 
 ## 1. Read your inputs
@@ -40,9 +56,9 @@ Do NOT read `reply_plan.json`, `active_lorebook.json`, `writing_rules_cache.md`,
 - `infrastructure/dialogues/{dialogue_id}/last_turn.json` — the single last turn from the *previous* round, full text (only when `turn_index == 0` — what you are directly reacting to)
 - `infrastructure/dialogues/{dialogue_id}/reply_turn_0.json` … `reply_turn_{turn_index - 1}.json` — every prior turn already written this round (only when `turn_index > 0`)
 
-**TBC resume check:** If `turn_index == 0` AND `tbc.json` exists at `infrastructure/dialogues/{dialogue_id}/tbc.json`, read it. Its `tbc_state` describes a frozen action from the prior round that your character must **resume and complete** as the opening of your turn. No time has elapsed. Your first sentence picks up from exactly that state and carries the action forward to a clean completion. See 2c.
+**TBC resume check:** If `turn_index == 0` AND `tbc.json` exists at `infrastructure/dialogues/{dialogue_id}/tbc.json`, read it. Its `tbc_state` describes a frozen action from the prior round that your character must **resume and complete** as the opening of your turn. No time has elapsed. Your first sentence picks up from exactly that state and carries the action forward to a clean completion. See **Addendum A**.
 
-**TBC reactor check:** If `tbc.json` exists AND you are NOT the resumer (i.e. you are not `turn_order[0]`), your turn cannot narrate your character as having moved past the TBC freeze point before the resumer's turn completes. See 2c.
+**TBC reactor check:** If `tbc.json` exists AND you are NOT the resumer (i.e. you are not `turn_order[0]`), your turn cannot narrate your character as having moved past the TBC freeze point before the resumer's turn completes. See **Addendum A**.
 
 These are the only sources you need. Do not read any other files.
 
@@ -51,7 +67,7 @@ From the turn context cache, use:
 - `plan_turn.weight` — beat type controlling your target length (see section 2a)
 - `plan_turn.beats` — the **structured beat array** that is your turn's skeleton
 - `plan_turn.tone` — mood/voice gloss to color the prose register
-- `plan_turn.ends_tbc` and `plan_turn.tbc_state` — TBC freeze state if applicable (see 2b)
+- `plan_turn.ends_tbc` and `plan_turn.tbc_state` — TBC freeze state if applicable (see **Addendum A**)
 - `plan_turn.rule_triggers` — which special writing rules to apply and how
 - `character_brief` — your character's voice profile, speech patterns, quirks
 - `lorebook_entries` — character-specific lore that applies this turn
@@ -102,40 +118,17 @@ Your turn's `weight` field in the plan specifies how long your prose should be a
 | `inflection` | 300-500 | 650 | 3-4 beats across a pivot |
 | `climax` | 400-700 | 800 | full arc of a load-bearing moment |
 
-**Reaction turns are the default and the hard ceiling on them is binding.** If your turn is `weight: reaction` and you are approaching 300 words, stop writing — the beat has landed. A two-paragraph reaction turn is correct far more often than a four-paragraph one.
+**Targets are pacing ceilings, not floors.** The lower bound of each target range is *informational* — it tells you what a typical turn at that weight looks like. It is **not a quota you must hit**. If your turn's beats demand brevity — a character whose voice has collapsed into fragments, an overwhelmed character with no language left, a stunned character whose interior has gone blank, a curt commander cutting off discussion — shorter prose is *correct*. A `climax` turn at 360 words can be a perfect climax turn if the prose is doing the work. **Do NOT pad to "more solidly hit the climax range."** The hard max is binding. The lower bound is not.
 
-**Do not reach for more length than your weight allows.** Prose bloat destroys scene pacing. Tight reaction turns keep three-character dialogues dynamic; sprawling reaction turns stall them. If you feel you need more room, you are either (a) adding beats your plan did not authorize, or (b) writing craft flourishes at the cost of pace. In both cases: cut.
+**Reaction turns especially: the hard ceiling is binding.** If your turn is `weight: reaction` and you are approaching 300 words, stop writing — the beat has landed. A two-paragraph reaction turn is correct far more often than a four-paragraph one.
 
-**Check your draft against the target before writing the output file.** Count paragraphs and roughly estimate words. If you are over the hard max for your weight, revise before writing.
+**Do not reach for more length than your weight allows.** Prose bloat destroys scene pacing. Tight reaction turns keep dialogues dynamic; sprawling reaction turns stall them. If you feel you need more room, you are either (a) adding beats your plan did not authorize, or (b) writing craft flourishes at the cost of pace. In both cases: cut.
 
-### 2b. TBC — ending your turn on a freeze
+**Spot-check obvious overflows only.** Do not iterate exact word counts in thinking — the merge step and validator run after you and will flag structural overruns. If your turn obviously runs to four+ dense paragraphs on a `reaction` weight, that's a spot-check fail; tighten before writing. Otherwise just write and exit.
 
-If `turns[turn_index].ends_tbc == true`, your turn is ending on a deliberate "to be continued" freeze. `tbc_state` describes the precise frozen state you must end at.
+### 2b. TBC framing
 
-**Rules for TBC turns:**
-- Write the prose as normal up to the freeze point
-- The **final paragraph** must land exactly at the state described in `tbc_state` — no further action, no completion
-- The turn ends at a *stopped instant*, not a natural conversational pause — the reader should feel the character mid-motion, body committed but not yet resolved
-- Use present-tense framing where appropriate to emphasize the held moment
-- Do not narrate the action completing — that happens in your next turn next round
-
-### 2c. TBC — resuming or reacting to a freeze
-
-**If you are resuming a TBC** (you are `turn_index == 0` and `tbc.json` exists with `speaker == your_speaker`):
-- Your opening beat must pick up **exactly** from the `tbc_state` — no elapsed time, no repositioning, no re-entering the moment
-- Your first sentence should show the held motion carrying forward: the hand that was at the jaw moves, the breath that was held releases, the breach that was starting completes
-- Complete the frozen action in this turn — do not leave it frozen again (your turn cannot itself be `ends_tbc: true`, see 2d)
-- Your `weight` will typically be `action` or `inflection` — the resumption is usually the load-bearing beat of the round
-
-**If you are reacting to a TBC being resumed** (you are not `turn_index == 0`, `tbc.json` exists, and you are not the resumer):
-- Your character's reaction is to the **completed** action the resumer just wrote — you read `reply_turn_0.json` (the resumer's turn) to see what actually happened
-- You cannot narrate your character as having moved or reacted **before** the resumer's turn landed — during the frozen moment your character was held still along with the resumer
-- Your `weight` will almost always be `reaction` — you are reacting, not driving
-
-### 2d. TBC — one per round, no chains
-
-- **Only the last turn in `turn_order` can have `ends_tbc: true`.** If that is not your turn index, `ends_tbc` must be false.
-- **If you are a TBC resumer, your turn cannot itself be a TBC.** The plan enforces this via validation, but you must also honor it in prose — complete the frozen motion before your turn ends.
+If `plan_turn.ends_tbc == true`, OR `tbc.json` exists at `infrastructure/dialogues/{dialogue_id}/tbc.json`, see **Addendum A — TBC handling** at the end of this file. Otherwise no TBC work is needed for your turn.
 
 ---
 
@@ -145,7 +138,7 @@ Follow all rules in `domain/dialogue/writing_rules_cache.md`:
 
 - Speech in `"double quotes"`, actions in `*asterisks*`, interior thoughts in `` `backticks` ``
 - Interior thoughts always on their own line — never inline with action beats or dialogue
-- **First-person action descriptions — MANDATORY.** All action text uses "I" / "my" / "me", never "she" / "her" / "he" / "his". Wrong: `*She sets the towel down.*` Right: `*I set the towel down.*` This is the single most common drift error — check every asterisk block before writing.
+- **First-person action descriptions — MANDATORY.** See section 2's "Common drift patterns to avoid" — all action text uses "I" / "my" / "me", never "she" / "her" / "he" / "his".
 - Distinct paragraphs separated with `\n\n`
 
 **Marker discipline — strictly enforced:**
@@ -183,20 +176,58 @@ After writing the output file, your work is done. Do **not** modify `infrastruct
 
 ## 6. Validate before writing
 
-- [ ] Output filename matches your `turn_index` exactly: `reply_turn_{turn_index}.json`
-- [ ] `speaker` equals `reply_plan.turns[turn_index].speaker`
-- [ ] You have read every prior `reply_turn_{i}.json` (i < turn_index) and your prose reacts to their actual text
-- [ ] Prose covers every beat in `beats` in order, 1-to-1, without skipping, reordering, or adding beats
-- [ ] Prose honors the `tone` field's mood/register gloss
+Spot-check only — the merge step and validator run mechanical checks after you. Do NOT iterate word counts in thinking.
+
+**Structural:**
+- [ ] Output filename matches your `turn_index` exactly; `speaker` equals `reply_plan.turns[turn_index].speaker`
+- [ ] Prose covers every beat in `beats` in order, 1-to-1 — no skipped, reordered, or added beats
 - [ ] Prose contains only the speaking character's own actions — no other character performs new actions within this turn
-- [ ] **Word count respects your `weight` hard ceiling** (reaction ≤ 350, action ≤ 450, inflection ≤ 650, climax ≤ 800)
-- [ ] **If `ends_tbc: true`:** your final paragraph lands exactly at `tbc_state`, no further action, no completion
-- [ ] **If resuming a TBC:** your opening sentence picks up exactly from the prior round's `tbc_state`, no elapsed time, and you complete the frozen action in this turn without re-freezing it
-- [ ] **If reacting to a TBC resume:** you read `reply_turn_0.json` first and react to the completed action there, not to a state before the freeze resolved
-- [ ] All `rule_triggers` applied as specified
-- [ ] Character voice matches `voice_notes` and `character_briefs`
-- [ ] All speech in `"double quotes"`, actions in `*asterisks*`, interior thoughts in `` `backticks` ``
-- [ ] Interior thoughts always on their own line — never appended to or prepended to action/dialogue lines
-- [ ] Every backtick block closes with a backtick; every asterisk block closes with an asterisk — no mixed markers
+- [ ] No obvious overflow vs your `weight` (reaction ≤ 350, action ≤ 450, inflection ≤ 650, climax ≤ 800) — spot-check only
+
+**Voice & formatting:**
+- [ ] First-person throughout (`I` / `my` / `me`) — no third-person drift, no body-as-subject, no detached participials
+- [ ] Speech in `"…"`, actions in `*…*`, interior thoughts in `` `…` `` — markers paired correctly, no mixed close
+- [ ] Interior thoughts always on their own line, never inline
 - [ ] Distinct paragraphs separated with `\n\n`
-- [ ] Output written to `infrastructure/dialogues/{dialogue_id}/reply_turn_{turn_index}.json`
+
+**TBC (only if your `ends_tbc` is true OR `tbc.json` exists — see Addendum A):**
+- [ ] If `ends_tbc: true`: your final paragraph lands exactly at `tbc_state`, no further action
+- [ ] If resuming a TBC: your opening picks up exactly from prior round's `tbc_state`, you complete the action, you do not re-freeze
+- [ ] If reacting to a TBC resume: you read `reply_turn_0.json` and react to the completed action
+
+**Output:**
+- [ ] Written to `infrastructure/dialogues/{dialogue_id}/reply_turn_{turn_index}.json`
+
+---
+
+## Addendum A — TBC handling
+
+Read this only when `plan_turn.ends_tbc == true` OR `tbc.json` exists this round.
+
+### A.1 Ending your turn on a freeze
+
+If `plan_turn.ends_tbc == true`, your turn is ending on a deliberate "to be continued" freeze. `tbc_state` describes the precise frozen state you must end at.
+
+- Write the prose as normal up to the freeze point
+- The **final paragraph** must land exactly at the state described in `tbc_state` — no further action, no completion
+- The turn ends at a *stopped instant*, not a natural conversational pause — the reader should feel the character mid-motion, body committed but not yet resolved
+- Use present-tense framing where appropriate to emphasize the held moment
+- Do not narrate the action completing — that happens in your next turn next round
+
+### A.2 Resuming or reacting to a freeze
+
+**If you are resuming a TBC** (you are `turn_index == 0` AND `tbc.json` exists with `speaker == your_speaker`):
+- Your opening beat must pick up **exactly** from the `tbc_state` — no elapsed time, no repositioning, no re-entering the moment
+- Your first sentence should show the held motion carrying forward: the hand that was at the jaw moves, the breath that was held releases, the breach that was starting completes
+- Complete the frozen action in this turn — do not leave it frozen again (your turn cannot itself be `ends_tbc: true`, see A.3)
+- Your `weight` will typically be `action` or `inflection` — the resumption is usually the load-bearing beat of the round
+
+**If you are reacting to a TBC being resumed** (you are not `turn_index == 0`, `tbc.json` exists, and you are not the resumer):
+- Your character's reaction is to the **completed** action the resumer just wrote — you read `reply_turn_0.json` (the resumer's turn) to see what actually happened
+- You cannot narrate your character as having moved or reacted **before** the resumer's turn landed — during the frozen moment your character was held still along with the resumer
+- Your `weight` will almost always be `reaction` — you are reacting, not driving
+
+### A.3 One per round, no chains
+
+- **Only the last turn in `turn_order` can have `ends_tbc: true`.** If that is not your turn index, `ends_tbc` must be false.
+- **If you are a TBC resumer, your turn cannot itself be a TBC.** The plan enforces this via validation, but you must also honor it in prose — complete the frozen motion before your turn ends.

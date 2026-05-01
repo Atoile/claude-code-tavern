@@ -9,11 +9,25 @@ read.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
+
+# Load pipeline context preamble from prompts.overwrite.py if present.
+# The file must define PIPELINE_CONTEXT: str. When absent, no preamble is prepended.
+_overwrite_path = Path(__file__).parent / "prompts.overwrite.py"
+_PIPELINE_CONTEXT: str = ""
+if _overwrite_path.exists():
+    _spec = importlib.util.spec_from_file_location("_prompts_overwrite", _overwrite_path)
+    if _spec and _spec.loader:
+        _mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)  # type: ignore[arg-type]
+        _val = getattr(_mod, "PIPELINE_CONTEXT", "")
+        if isinstance(_val, str):
+            _PIPELINE_CONTEXT = _val
 
 
 def resolve(rel: str, dialogue_id: str | None = None) -> Path:
@@ -83,9 +97,10 @@ def build_prompt(
       Working directory is the repository root.
       Platform: Windows; repo root d:/AI/Tavern.
     """
-    parts: list[str] = [
-        f"Read your instructions from {instruction_file} and execute the task.",
-    ]
+    parts: list[str] = []
+    if _PIPELINE_CONTEXT:
+        parts.extend([_PIPELINE_CONTEXT, ""])
+    parts.append(f"Read your instructions from {instruction_file} and execute the task.")
 
     if task_json is not None:
         parts.append("")

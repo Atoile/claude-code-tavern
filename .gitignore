@@ -3,6 +3,7 @@ node_modules
 dist
 *.overwrite.md
 *.overwrite.json
+*.overwrite.py
 *_cache.md
 application/scripts/turn_finalization.py
 context_cache.json

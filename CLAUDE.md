@@ -422,29 +422,21 @@ When the user says **"run queue"** (or similar — "process queue", "go", etc.),
 
    **Phase 1c — Handle validation failure:**
 
-   The handler is **gated by check-ID coverage**. Read `application/dialogue/handle_plan_validation.md` and collect every check ID that has an established entry under the **"Known issue handling rules"** section (each rule declares its `check ID` in the `###` header). Then inspect every issue in `plan_validation.json.issues` and collect their `check` IDs.
+   Hard-stop the pipeline. Do NOT proceed to Phase 2. Do NOT spawn the handler agent. Do NOT delete any files.
 
-   - **All failing check IDs are established** → spawn the handler (established-runtime path below).
-   - **Any failing check ID is not established** → interim hard-stop (unestablished-runtime path below). The handler cannot safely classify what it has no rule for, so surface it to the user first.
+   Preserve all debug artifacts in place:
+   - `infrastructure/dialogues/{dialogue_id}/reply_plan.json`
+   - `infrastructure/dialogues/{dialogue_id}/plan_validation.json`
 
-   *Established runtime:* Spawn a Sonnet handler agent using `application/dialogue/handle_plan_validation.md`. The handler classifies each issue, then:
-   - **Critical issues** → handler deletes `reply_plan.json` + `plan_validation.json`, writes `handler_result.json` with `status: "restart"`. The orchestrator returns to Phase 1 (replan from scratch).
-   - **Fixable issues** → handler patches `reply_plan.json` in place, runs `check_beat_sizing.py` to verify, deletes the old `plan_validation.json`, writes `handler_result.json` with `status: "patched"` and a `revalidation_needed` boolean. Routing depends on the flag:
-     - `revalidation_needed: true` (any structural patch — split, weight bump, extract-to-new-beat, mixed) → orchestrator returns to Phase 1b (re-run validator against the patched plan).
-     - `revalidation_needed: false` (trim-only patches, sizing tool confirmed PASS) → orchestrator skips Phase 1b and proceeds directly to Phase 2. Pure trims cannot regress any non-sizing check, and the sizing tool has already verified the only thing a trim could break.
+   Report the failing issues to the user (one line per issue: check ID, severity, speaker, detail), then output:
 
-   *Unestablished runtime (interim — only when at least one failing check ID has no rule yet):* Hard-stop the pipeline. Do NOT proceed to Phase 2. Do NOT spawn the handler agent. Instead:
+   ```
+   ERROR: plan validation failed — queue stopped. Debug files preserved at infrastructure/dialogues/{dialogue_id}/.
+   ```
 
-   1. Report the failing issues to the user concisely (one line per issue: check ID, severity, speaker, detail). Flag which check IDs are unestablished.
-   2. Ask the user how this kind of failure should be handled (critical → restart plan, or fixable → specify the patch rule).
-   3. After the user answers, append the new rule into `application/dialogue/handle_plan_validation.md` under the **"Known issue handling rules"** section. Use this format for each rule:
-      ```
-      ### <check ID> — <one-line title>
-      **Classification:** critical | fixable
-      **Trigger:** <which detail patterns match this rule>
-      **Action:** <exact patch instruction, or "restart plan phase">
-      ```
-   4. Stop the pipeline. The user decides whether to re-run the queue manually. The newly-established rule will route through the handler on next encounter.
+   Stop all processing immediately. The user decides whether to fix the plan manually or re-run the queue.
+
+   *(Python orchestrator: raises `ValidationError` from `generate_reply/__init__.py`. The next run's pre-flight sweeps the stale debug files.)*
 
    **Phase 2 — Generate turns sequentially:**
 
